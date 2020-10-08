@@ -1,0 +1,347 @@
+---
+title: "sasp_prelimary"
+author: "Danielle Reimanis"
+date: "10/08/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(darksky)
+library(xts)
+library(dygraphs)
+library(ggthemes)
+library(suncalc)
+
+```
+
+# Reading in data
+
+```{r}
+sasp <- read.csv('data/SASP_1hr.csv')
+
+#create good datetime column
+sasp_datetime <- sasp%>%
+  select(1:6,8,10,13,15, 17:22)%>%
+  mutate(., Date = mdy(Date))%>%
+  mutate(., Hour = ifelse(nchar(Hour) < 4, 
+                          paste0("0", Hour), Hour))%>%
+  mutate(., Hour = paste0("1970-01-01 ", Hour),
+         Hour = as.POSIXct(Hour, tz = "GMT", format = "%Y-%d-%m %H%M"),
+         Hour = format(Hour, "%H:%M"))%>%
+  mutate(., datetime = paste(Date, Hour, sep = " "),
+         datetime = ymd_hm(datetime))
+
+#filter only pyranometer data and 2017-2018 + 2018-2019 winter seasons.
+sasp_filtered <- sasp_datetime %>%
+  select("Date", "datetime","PyDwn_Unfilt_W", "PyDwn_Filt_W", "PyUp_Unfilt_W", "PyUp_Filt_W")%>%
+  filter(datetime >= "2017-09-01 01:00:00")
+
+```
+
+
+```{r}
+#calculate albedo, pydwn/pyup
+sasp_albedo <- sasp_filtered %>%
+  mutate(., albedo_unfilt = PyDwn_Unfilt_W/PyUp_Unfilt_W,
+         alebdo_filt = PyDwn_Filt_W/PyUp_Filt_W)
+  
+```
+
+# Pulling Sunrise and Sunset data
+
+```{r}
+#Pulling sunrise/sunset data and saving it
+
+# latitude <- 37.906889
+# longitude <- -107.726278
+
+# starting_daily <- get_forecast_for(latitude, longitude, "2017-09-01T01:00:00",
+#                                    units = "us", language = "en",
+#                                   exclude = 'currently, hourly, minutely',
+#                                   add_json = FALSE, add_headers =FALSE)
+# combined_daily <- starting_daily$daily%>%
+#   dplyr::select(time, sunriseTime, sunsetTime)
+# 
+# date_vector <- seq(from = as.Date("2017-09-02"), to = as.Date("2019-09-30"), by = 1)
+# 
+# for(i in as.list(date_vector)){
+#     print(i)
+#   a_timestamp <- paste(i, "T01:00:00", sep = "")
+#   b_forecast <- get_forecast_for(latitude, longitude, a_timestamp,
+#                                  units = "us", language = "en",
+#                                  exclude = 'currently, hourly, minutely',
+#                                  add_json = FALSE, add_headers =FALSE)
+#   c_forecast <- b_forecast$daily%>%
+#     dplyr::select(time, sunriseTime, sunsetTime)
+# 
+#   combined_daily <- rbind(combined_daily, c_forecast)
+# }
+
+# save(combined_daily, file = 'data/sunrise_sunset_data.Rdata')
+
+load('data/sunrise_sunset_data.Rdata')
+
+```
+
+# Filtering albedo only by day
+
+```{r}
+#joining sun data to sasp albedo data and filtering by day only
+
+combined_daily_date <- combined_daily%>%
+  transform(date = ymd(time))%>%
+  select(2:4)
+
+tail(sasp_albedo,10)
+head(sasp_albedo,10)
+
+sasp_albedo_sun_data <- sasp_albedo %>%
+  rename(date = 1)%>%
+  merge(., combined_daily_date, by = "date")%>%
+  mutate(datetime_ds = seq(as.POSIXct("2017-09-01 07:00:00"), 
+                        as.POSIXct("2019-10-01 00:00:00"), by = "hour")) %>% ## Need to do extra timeslot because sequence consider daylight savings, original data did not
+    mutate(day_night = ifelse(datetime_ds > sunriseTime 
+                              & datetime_ds < sunsetTime, 'day', 'night')) ## this is decide if day or night
+
+sasp_albedo_day <- sasp_albedo_sun_data %>%
+  filter(day_night == "day")
+
+
+```
+
+# Graphing albedo by day
+
+```{r}
+
+sasp_albedo_day_graphing <- sasp_albedo_day %>%
+  select(7:11)%>%
+  gather(., key = "filtration", 
+         value = "albedo", -sunsetTime, -sunriseTime,-datetime_ds)
+
+ggplot(sasp_albedo_day_graphing, 
+       aes(x=datetime_ds, y=albedo))+
+  geom_line()+
+  facet_wrap(~filtration)
+
+sasp_albedo_day_graphing_filtered <- sasp_albedo_day_graphing %>%
+  filter(albedo < 1,
+         albedo >0)
+  
+ggplot(sasp_albedo_day_graphing_filtered, 
+       aes(x=datetime_ds, y=albedo))+
+  geom_point()+
+  facet_wrap(~filtration)
+
+```
+
+# Day albedo dygraph
+
+```{r}
+
+day_albedo_wide <- sasp_albedo_day%>%
+  select(11,7,8)%>%
+  rename(date = 1, unfiltered = 2, filtered = 3)
+
+albedo_xts <- day_albedo_wide%>%
+  xts(., order.by = .$date)
+
+dygraph(albedo_xts)%>%
+    dyAxis('y', label='Albedo', valueRange = c(0,1))
+
+## Awesome work!
+
+```
+
+
+# Albedo values around solar noon
+
+```{r}
+# Albedo of solar noonish times
+
+sasp_albedo_noon <- sasp_albedo %>%
+  mutate(time = format(ymd_hms(datetime), "%H:%M:%S"))%>%
+  filter(time %in% c("12:00:00","11:00:00","13:00:00"))
+
+sasp_noon_graph <- sasp_albedo_noon%>%
+  select(1,7,8)%>%
+  rename(date = 1, unfiltered = 2, filtered = 3)%>%
+  gather(., key = filtration,
+         value = albedo,
+         -date)
+
+#editing ut values >1
+sasp_noon_graph_edited <- sasp_noon_graph %>%
+  filter(albedo < 1)
+  
+# Graphing solar noonish albedo (filtered and unfiltered)
+ggplot(sasp_noon_graph, aes(x = date, y = albedo))+
+  geom_point(size =0.5)+
+  theme_bw()+
+  facet_wrap(~filtration)
+
+#This graph is for the edited  data
+ggplot(sasp_noon_graph_edited, aes(x = date, y = albedo))+
+  geom_point(size =1, aes(color = filtration, shape = filtration))+
+  scale_color_manual(values = c("lightsteelblue3", "black"))+
+  theme_bw()+
+  labs(x="Date", y= "Albedo",
+       title =
+         "Filtered vs unfiltered albedo measurements for two consecutive winter seasons", legend = "blank:")+
+  theme(legend.title=element_blank())
+ 
+```
+
+# Dygraph
+## Solar noon dygraph
+
+```{r}
+#dygraph of edited data
+#this is for noon times only, day times will come when I figure out the timing of the sunrise/set
+
+albedo_wide <- sasp_albedo_noon %>%
+  select(1,7,8)%>%
+  rename(date = 1, unfiltered = 2, filtered = 3)
+
+albedo_xts <- albedo_wide%>%
+  xts(., order.by = .$date)
+
+dygraph(albedo_xts)%>%
+    dyAxis('y', label='Albedo', valueRange = c(0,10))
+
+
+## Dygraph of day values
+## Dygraph of incoming radiation (noon? day? all values?)
+## Dygraph of outgoing radiation (noon? day? all values?)
+
+```{r}
+#### NEXT PLANS
+
+#1) graph and comapre incoming vs outoing shortwave
+#2) Figure out sunrise/set problem
+#3) Figure out why albedo spikes (precip on pyranometer?) 
+#4) Remove/replace spike values
+
+```
+
+```{r}
+# Spikes seen March 15th, 2018
+
+sasp_weather <- sasp %>%
+  mutate(Date = mdy(Date))%>%
+  filter(Date > "2017-08-31")%>%
+  mutate(albedo_filt = PyDwn_Filt_W/PyUp_Filt_W,
+         albedo_unfilt = PyDwn_Unfilt_W/PyUp_Filt_W)
+
+sasp_albedo3_15_18 <- sasp_weather %>%
+  filter(Date == "2018-03-15")
+
+graphing_filtration_3_15_18 <- sasp_albedo3_15_18 %>%
+  select(4,5,32,35,36)%>%
+  gather(., key = "filtration", 
+         value = "albedo", -Date, -Hour, -Day_H2O_mm)
+
+sunrise_sunset_data %>%
+  filter(time == "2018-03-15")
+  
+ggplot()+
+  geom_bar(data = graphing_filtration_3_15_18,
+           aes(x = Hour, y = Day_H2O_mm),
+           stat = 'identity', fill = "steelblue3")+
+  scale_y_continuous("Albedo", 
+                     sec.axis = 
+                       sec_axis(~./2, name = "Water Accumulation per day (mm)"))+
+  geom_line(data = graphing_filtration_3_15_18,
+            aes(x= Hour, y = albedo, color = filtration))+
+  scale_color_manual(values=c("red", "black"))+
+  theme_bw()+
+  labs(title = "All day precip event with aledbo values above 1 and below 0")
+
+# Incoming radiationa against precip
+graphing_radiaiton_3_15_18 <- sasp_albedo3_15_18 %>%
+  select(4, 5, 17, 18, 19, 20, 32)%>%
+  gather(., key = "Type", 
+         value = "Radiation_w", -Date, -Hour, -Day_H2O_mm)%>%
+  mutate(up_down = substr(Type,1,5),
+         up_down = ifelse(Radiation_w < 0, NA, up_down))
+
+
+ggplot()+
+  geom_bar(data = graphing_radiaiton_3_15_18,
+           aes(x = Hour, y = Day_H2O_mm),
+           stat = 'identity', fill = "steelblue3")+
+  scale_y_continuous("Radiation (w)", limits = c(-10,450), sec.axis = 
+                       sec_axis(~./4, name = "Water Accumulation per day (mm)"))+
+  geom_line(data = graphing_radiaiton_3_15_18,
+            aes(x= Hour, y = Radiation_w, color = Type))+
+  scale_color_manual(values = c("red","black","red","black"))+
+  geom_point(data = graphing_radiaiton_3_15_18,
+             aes(x = Hour, y = Radiation_w, color = Type, shape = Type))+
+  scale_shape_manual(values = c(25, 25, 17, 17))+
+  theme_minimal()+
+  labs(title = "All day precip event: outgoing and incoming radiation")+
+  theme_bw()
+  
+
+```
+
+```{r}
+## Normal, clear day, albedo and radiation data
+
+sasp_data_11_06_17 <- sasp_weather %>%
+  filter(Date == "2017-11-06")
+
+graphing_filtration_11_06_17 <- sasp_data_11_06_17 %>%
+  select(4,5,32,35,36)%>%
+  gather(., key = "filtration", 
+         value = "albedo", -Date, -Hour, -Day_H2O_mm)
+
+sunrise_sunset_data %>%
+  filter(time == "2017-11-06")
+  
+ggplot()+
+  geom_line(data = graphing_filtration_11_06_17,
+            aes(x= Hour, y = albedo, color = filtration))+
+  scale_y_continuous("Albedo")+
+   scale_color_manual(values=c("red", "black"))+
+  theme_bw()+
+  labs(title = "No precip with albebo values above 1 and below 0")
+
+# Incoming radiationa against precip
+graphing_radiaiton_11_06_17 <- sasp_data_11_06_17 %>%
+  select(4, 5, 17, 18, 19, 20, 32)%>%
+  gather(., key = "Type", 
+         value = "Radiation_w", -Date, -Hour, -Day_H2O_mm)%>%
+  mutate(up_down = substr(Type,1,5),
+         up_down = ifelse(Radiation_w < 0, NA, up_down))
+
+
+ggplot()+
+  geom_bar(data = graphing_radiaiton_11_06_17,
+           aes(x = Hour, y = Day_H2O_mm), stat = 'identity', fill = "steelblue3")+
+  scale_y_continuous("Radiation (w)", limits = c(-10,300))+
+  geom_line(data = graphing_radiaiton_11_06_17,
+            aes(x= Hour, y = Radiation_w, color = Type))+
+  scale_color_manual(values = c("red","black","red","black"))+
+  geom_point(data = graphing_radiaiton_11_06_17,
+             aes(x = Hour, y = Radiation_w, color = Type, shape = Type))+
+  scale_shape_manual(values = c(25, 25, 17, 17))+
+  theme_minimal()+
+  labs(title = "No precip: outgoing and incoming radiation")+
+  theme_bw()
+  
+  
+
+```
+
