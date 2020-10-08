@@ -1,0 +1,217 @@
+---
+title: "snotel_preliminary
+author: "Danielle Reimanis"
+date: "10/08/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(RNRCS)
+library(tmap)
+library(sf)
+library(raster)
+library(mapview)
+library(rgdal)
+library(tigris)
+
+```
+
+```{r}
+
+meta_snotel <- grabNRCS.meta(ntwrks= 'SNTL', cnvrt.elev = TRUE)
+
+snotel_co <- meta_snotel$SNTL%>%
+  filter(state=='CO')%>%
+  filter(county %in% c('Gunnison','San Juan', 'San Miguel','Dolores','La Plata','Hinsdale', 'Ouray', 'Montrose'))
+  
+red_mtn_pass <- grabNRCS.data(network = 'SNTL', site_id  = '713',
+                              timescale = 'daily',
+                                DayBgn = '2017-08-01', DayEnd = '2019-10-01')
+
+lizard_head_pass  <- grabNRCS.data(network = 'SNTL', site_id  = '586',
+                              timescale = 'daily',
+                                DayBgn = '2017-08-01', DayEnd = '2019-10-01')
+
+# ggplot(lizard_head_pass, aes(x = as.POSIXct(Date), 
+#                              y = Snow.Water.Equivalent..in..Start.of.Day.Values))+
+#   geom_point()
+
+```
+
+Pulling SNOTEL sites with similar elevation and lat/long nad identifying counties
+```{r}
+
+snotel_co$latitude <- as.numeric(as.character(snotel_co$latitude))
+snotel_co$longitude <- as.numeric(as.character(snotel_co$longitude))
+
+min(snotel_co$latitude)
+max(snotel_co$latitude)
+min(snotel_co$longitude)
+max(snotel_co$longitude)
+
+snotel_co_mapping <- snotel_co %>%
+  dplyr::select(site_name, latitude, longitude, elev_m, county, site_id)
+
+coordinates(snotel_co_mapping) <- c("longitude","latitude")
+proj4string(snotel_co_mapping) <- (CRS("+init=epsg:4326"))
+colorado_counties <- counties(state= "CO", cb = TRUE)
+
+mapview(snotel_co_mapping)
+
+relevant_counties <- subset(colorado_counties, NAME %in% c('Gunnison','San Juan', 'San Miguel','Dolores','La Plata','Hinsdale', 'Ouray','Montrose'))
+
+mapview(relevant_counties)
+
+  
+
+```
+
+
+Plotting all SNOTEL and all SBBSP on one
+```{r}
+site_name <- c("SASP", "SBSP")
+site_lat <- c(37.906909, 37.906879)
+site_long <- c(-107.711317, -107.726259)
+site_elev <- c(3371, 3714)
+site_county <- c("NA", "NA")
+site_id <- c("SBBSP", "SBBSP")
+
+sbbsp <- data.frame(site_name, site_lat, site_long, site_elev, site_county, site_id)
+
+coordinates(sbbsp) <- c("site_long","site_lat")
+proj4string(sbbsp) <- (CRS("+init=epsg:4326"))
+
+
+tm_shape(relevant_counties) +
+  tm_fill(col = "NAME",
+          title = "County Name") +
+  tm_shape(snotel_co_mapping) +
+  tm_dots(size = 0.5,
+          col = "site_name",
+          title = "Site Name")+
+  tm_shape(sbbsp)+
+  tm_dots(size = 1,
+             col = "site_name",
+             palette = c("yellow", "black"),
+             title = "Senator Beck Basin Study Area")+
+  tm_layout(legend.title.size = 1,
+          legend.text.size = 0.6,
+          legend.position = c("left","center"))
+
+
+#TMAP without gunnison
+
+relevant_counties_nogun <- subset(colorado_counties, NAME %in% c('San Juan', 'San Miguel','Dolores','La Plata','Hinsdale', 'Ouray','Montrose')
+
+snotel_nogun <- subset(snotel_co_mapping, county %in% c('San Juan', 'San Miguel','Dolores','La Plata','Hinsdale', 'Ouray','Montrose'))
+                       
+tm_shape(relevant_counties_nogun)+
+  tm_fill(col = "NAME",
+          title = "County Name") +
+  tm_shape(snotel_nogun)+
+  tm_dots(size = 0.5,
+          col = "site_name",
+          title = "Site Name",
+          palette = "viridis")+
+  tm_shape(sbbsp)+
+  tm_markers(size = 1,
+             col = "site_name",
+             palette = c("yellow", "black"),
+             title = "Senator Beck Basin Study Area")+
+  tm_layout(legend.title.size = 1,
+          legend.text.size = 0.6,
+          legend.position = c("left","center"))
+
+```
+
+
+Mapping SBSP and SASP (as well as Red Mountain Pass Snotel and Lizard Head Pass Snotel)
+
+```{r}
+# 
+# utmE <- c(261631, 260317, 243202, 261138)
+# utmN <- c(4198953, 4198988, 4187633, 4198200)
+# elev <- c(3371, 3714, 3109, 3414)
+# site <- c('SASP', 'SBSP', 'LHP_SNTL', 'RMP_SNTL')
+# type <- c('SBBSP', 'SBBSP', 'SNTL', 'SNTL')
+# 
+# #SBSP sits at 3714 meters high and at latitude:  37.907 and longitude: -107.726
+# #SASP sits at 3371 meters high and at latitude: 37.907 and longitude: -107.711
+# 
+# location_data_raw <- cbind(site, utmE, utmN, elev, type) %>%
+#   as.data.frame()
+# 
+# location_data <- location_data_raw %>%
+#   mutate(site = as.character(site),
+#          type = as.character(type),
+#          utmE = as.numeric(as.character(utmE)),
+#          utmN = as.numeric(as.character(utmN)),
+#          elev = as.numeric(as.character(elev)))
+# 
+# spatial_points <- location_data %>%
+#   st_as_sf(coords=c('utmE','utmN'), crs=26913)
+# 
+# buffer_point <- spatial_points%>%
+#   filter(site == 'SBSP')
+# 
+# buffer_20km <- st_buffer(buffer_point, 20000)
+# co_elev <- elevatr::get_elev_raster(buffer_20km,z=11)
+# elev_clip <- crop(co_elev, buffer_20km)
+# 
+# basemap <- tm_shape(elev_clip) + 
+#   tm_raster(palette = 'Greys',
+#             title = "Elevation (m)")+ 
+#   tm_compass(type = "4star", size = 6)+
+#   tm_scale_bar(position = c(0.1, 0.05), text.size = 0.6)
+# 
+# tm_shape(elev_clip) + 
+#   tm_raster(palette = 'Greys',
+#             title = "Elevation (m)")+
+#   tm_shape(spatial_points %>% filter(type == 'SNTL')) + 
+#   tm_bubbles(size = 1,
+#              col = "elev",
+#              title = "Elevation of Sites (m)",
+#              palette ='viridis',
+#              alpha = 0.7)
+#   
+# 
+# ### Trying to plot snotel vs sbbsp to determine which snotel may be best. Stuck on making snotel one type of figure vs sbbsp
+# 
+#   tm_markers(col = "elev",
+#              shape = marker_icon(),
+#              title = "Elevation of Sites (m)",
+#              style = "cont",
+#              size = 1, 
+#              palette ='viridis',
+#              alpha = 0.7)+
+#   tm_text('site', size = 0.5)+
+#   tm_compass(type = "4star", size = 6)+
+#   tm_scale_bar(position = c(0.1, 0.05), text.size = 0.6)
+# 
+# ?tm_squares
+# 
+# 
+#  tm_shape(spatial_points %>% filter(type == 'SBBSP')) + 
+#   tm_dots(col = "elev",
+#           title = "Elevation of Sites (m)",
+#           style = "cont",
+#           size = 1, 
+#           palette ='viridis',
+#           alpha = 0.7)+
+
+```
+
+
+
+
+#### OKAY NEXT STEPS OVER HERE!!!!!
+
+Consider creating a loop to pull data from all SNOTEL stations nearby. Then start the analysis there. Which is best? That's a whole nother Thesis... just compare snoetl stations to create logic for why you chose the few you did. Spatial Variability is key.
+

@@ -1,0 +1,153 @@
+---
+title: "sbsp_preliminary"
+author: "Danielle Reimanis"
+date: "10/08/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(darksky)
+library(xts)
+library(dygraphs)
+library(ggthemes)
+library(suncalc)
+
+```
+
+```{r}
+sbsp <- read.csv('data/SBSP_1hr.csv')
+
+#create good datetime column
+sbsp_datetime <- sbsp%>%
+  mutate(., Date = mdy(Date))%>%
+  mutate(., Hour0 = ifelse(nchar(Hour) < 4, 
+                          paste0("0", Hour), Hour))%>%
+  mutate(., datetime_test = paste(Date, Hour0, sep = " "),
+         datetime = ymd_hm(datetime_test, tz = "MST"))
+
+```
+
+
+What defines a 'Winter Season'? 
+
+Beginning:
+100% Snow Covered Area (SCA)
+First snowfall
+
+What happens when depth of snow >30 cm?
+
+End:
+0% SCA 
+Last snowfall (May storms?)
+
+
+```{r}
+
+#filter only 2018-2019 winter seasons
+#Goall: To determine at what datetime there was 100% SCA and how long it lasted.
+
+sbsp_2018_2019_pyra_data <- sbsp_datetime %>%
+  select("Date", "datetime","DOY",
+         "PyDwn_Unfilt_W", 
+         "PyDwn_Filt_W", "PyUp_Unfilt_W", "PyUp_Filt_W")%>%
+  rename("date" = Date)%>%
+  filter(datetime >= "2017-08-01 01:00:00")
+
+sbsp_2018_2019_weather_data <- sbsp_datetime %>%
+  select("Date", "datetime")
+
+
+
+```
+
+
+Next Steps:
+Download sunrise sunset data and calculate solar noon
+Map SNOTEL stations (x2) & SBSP (maybe SASP)
+
+```{r}
+
+#using suncalc package to pull sunrise/sunset/solarnoon data
+
+date <- seq.Date(from = as.Date("2017-08-01", tz = "MST"), 
+                 to = as.Date("2019-09-30", tz = "MST"), 
+                 by = 1)
+
+sunlight_data <- getSunlightTimes(date = date,
+                                  lat = 37.9, 
+                                  lon = -107.7, 
+                                  tz = "MST", 
+                                  keep = c("sunrise", "solarNoon", "sunset"))
+
+sbsp_pyra_sunlight_combined <- sunlight_data %>%
+  mutate(sunrise = as.POSIXct(sunrise),
+         sunset = as.POSIXct(sunset))%>%
+  inner_join(sbsp_2018_2019_pyra_data, by = 'date')%>%
+  mutate(day_night = ifelse(datetime > sunrise &
+                              datetime < sunset, 'day', 'night'))%>%
+  mutate(noon_time = format(solarNoon, "%H:%M:%S"))%>%
+  mutate(noon = ifelse(hour(datetime) == hour(solarNoon), 'noon', 'NA'))
+
+
+# min(sbsp_pyra_sunlight_combined$noon_time)
+# max(sbsp_pyra_sunlight_combined$noon_time)
+# 
+# ggplot(sbsp_pyra_sunlight_combined, aes(x = noon_time, y = date))+
+#   geom_point()
+
+names(noon_values)
+
+noon_values <- sbsp_pyra_sunlight_combined%>%
+  filter(noon == 'noon')%>%
+  mutate(alb_unfil = PyDwn_Unfilt_W/PyUp_Unfilt_W,
+         alb_fil = PyDwn_Filt_W/PyUp_Filt_W)
+  
+
+ggplot(noon_values, aes(x = date, y=alb_fil))+
+  geom_point()+
+  labs(title = "Filtered")
+
+ggplot(noon_values, aes(x = date, y=alb_unfil))+
+  geom_point()+
+  labs(title = "Unfiltered")
+
+# is albedo increasing or decreasing based on new snowfall? how can we show the SLOPE as positive or negative?
+
+filt_unfilt_ggplot <- noon_values%>%
+  select(date, alb_fil, alb_unfil)%>%
+  gather(key = "key",
+         value = "value",
+         -date)
+  
+ggplot(filt_unfilt_ggplot, aes(x=date, y=value, color = key))+
+  geom_point()
+
+filt_unfilt <- noon_values%>%
+  select(date, alb_fil, alb_unfil)%>%
+  mutate(difference = alb_fil - alb_unfil)
+
+ggplot(filt_unfilt, aes(x = date, y = difference))+
+  geom_point()
+
+
+
+# min(noon_values$alb_fil)
+# max(noon_values$alb_fil)
+# 
+# min(noon_values$alb_unfil)
+# max(noon_values$alb_unfil)
+
+```
+
