@@ -65,17 +65,13 @@ sbsp_2018_2019_pyra_data <- sbsp_datetime %>%
   rename("date" = Date)%>%
   filter(datetime >= "2017-08-01 01:00:00")
 
-sbsp_2018_2019_weather_data <- sbsp_datetime %>%
-  select("Date", "datetime")
+#sbsp_2018_2019_weather_data <- sbsp_datetime %>%
+ # select("Date", "datetime")
 
 
 
 ```
 
-
-Next Steps:
-Download sunrise sunset data and calculate solar noon
-Map SNOTEL stations (x2) & SBSP (maybe SASP)
 
 ```{r}
 
@@ -107,21 +103,21 @@ sbsp_pyra_sunlight_combined <- sunlight_data %>%
 # ggplot(sbsp_pyra_sunlight_combined, aes(x = noon_time, y = date))+
 #   geom_point()
 
-names(noon_values)
-
 noon_values <- sbsp_pyra_sunlight_combined%>%
   filter(noon == 'noon')%>%
   mutate(alb_unfil = PyDwn_Unfilt_W/PyUp_Unfilt_W,
-         alb_fil = PyDwn_Filt_W/PyUp_Filt_W)
+         alb_fil = PyDwn_Filt_W/PyUp_Filt_W)%>%
+  filter(alb_unfil < 1,
+         alb_fil <1)
   
 
 ggplot(noon_values, aes(x = date, y=alb_fil))+
-  geom_point()+
-  labs(title = "Filtered")
+  geom_line()+
+  labs(title = "Filtered Albedo")
 
 ggplot(noon_values, aes(x = date, y=alb_unfil))+
-  geom_point()+
-  labs(title = "Unfiltered")
+  geom_line()+
+  labs(title = "Unfiltered Albedo")
 
 # is albedo increasing or decreasing based on new snowfall? how can we show the SLOPE as positive or negative?
 
@@ -129,25 +125,84 @@ filt_unfilt_ggplot <- noon_values%>%
   select(date, alb_fil, alb_unfil)%>%
   gather(key = "key",
          value = "value",
-         -date)
-  
-ggplot(filt_unfilt_ggplot, aes(x=date, y=value, color = key))+
-  geom_point()
+         -date)%>%
+  rename("albedo" = "value")
+
+ggplot(filt_unfilt_ggplot, aes(x=date, y=albedo, color = key))+
+  geom_point()+
+  theme_bw()
 
 filt_unfilt <- noon_values%>%
   select(date, alb_fil, alb_unfil)%>%
   mutate(difference = alb_fil - alb_unfil)
 
 ggplot(filt_unfilt, aes(x = date, y = difference))+
-  geom_point()
-
-
+  geom_point()+
+  labs(y = "Albedo filtered - Albedo Unfiltered")+
+  theme_bw()
 
 # min(noon_values$alb_fil)
 # max(noon_values$alb_fil)
 # 
 # min(noon_values$alb_unfil)
 # max(noon_values$alb_unfil)
+
+```
+
+When does albedo change from ground to first snow? 2018 and 2017. 
+
+```{r}
+
+october2018 <- seq.Date(from = as.Date("2018-10-01", tz = "MST"), 
+                 to = as.Date("2018-10-31", tz = "MST"), 
+                 by = 1)
+
+october_2018_alb <- filt_unfilt_ggplot %>%
+  filter(date %in% october2018)
+
+ggplot(october_2018_alb, aes(x=date, y=albedo, color = key))+
+  geom_line()+
+  theme_bw()
+
+oct_nov_dec2017 <- seq.Date(from = as.Date("2017-10-01", tz = "MST"), 
+                 to = as.Date("2017-12-31", tz = "MST"), 
+                 by = 1)
+
+oct_nov_dec2017_alb <- filt_unfilt_ggplot %>%
+  filter(date %in% oct_nov_dec2017)
+
+ggplot(oct_nov_dec2017_alb, aes(x=date, y=albedo, color = key))+
+  geom_line()+
+  theme_bw()
+
+```
+
+Capturing 2017 and 2018 winter seasons, isolated
+
+```{r}
+
+winter_2018 <- seq.Date(from = as.Date("2018-09-01", tz = "MST"), 
+                 to = as.Date("2019-07-31", tz = "MST"), 
+                 by = 1)
+
+albedo_2018 <- filt_unfilt_ggplot %>%
+  filter(date %in% winter_2018)
+
+ggplot(albedo_2018, aes(x=date, y=albedo, color = key))+
+  geom_line()+
+  theme_bw()
+
+
+winter_2017 <- seq.Date(from = as.Date("2017-09-01", tz = "MST"), 
+                 to = as.Date("2018-07-31", tz = "MST"), 
+                 by = 1)
+
+albedo_2017 <- filt_unfilt_ggplot %>%
+  filter(date %in% winter_2017)
+
+ggplot(albedo_2017, aes(x=date, y=albedo, color = key))+
+  geom_line()+
+  theme_bw()
 
 ```
 
