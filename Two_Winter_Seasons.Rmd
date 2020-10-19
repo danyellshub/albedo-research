@@ -102,15 +102,103 @@ sasp_noon <- sasp_sunlight_combined%>%
 
 ```
 
-Organizing into only a few working data frames
+Versgehy 1991 albedo model on 2017-2018
 ```{r}
 
-names(sbsp_noon)
-names(sasp_noon)
-names(red_mtn_pass)
+red_mtn_pass_assumed_snow_2017_18 <- red_mtn_pass %>%
+  select(1:4, 6:8)%>%
+  rename("date" = 1,
+         "temp_avg_F" = 2,
+         "temp_max_F" = 3,
+         "temp_min_F" = 4,
+         "precip_accum_in" = 5,
+         "snow_depth_in" = 6,
+         "SWE_in" = 7)%>%
+  filter(date < "2018-07-01")%>%
+  mutate(snow_accum = snow_depth_in - lag(snow_depth_in),
+         snow_accum_pos = ifelse(snow_accum < 0, 0, snow_accum),
+         temp_avg_C = ((temp_avg_F - 32)*(5/9)))%>%
+  mutate(date = ymd(date))
 
-  
+albedo_df_test_17 <- red_mtn_pass_assumed_snow_2017_18 %>%
+  filter(!is.na(snow_accum),
+         !is.na(snow_accum_pos))%>%
+  mutate(bare_albedo = 0.25,
+         cume_snow = cumsum(snow_accum_pos),
+         fresh_albedo = ifelse(snow_accum_pos > 0, 0.84, NA),
+         albedo_min = ifelse(temp_avg_C < 0 & snow_accum_pos == 0, 0.7, 
+                             ifelse(temp_avg_C >= 0, 0.5, NA)),
+         albedo_min = ifelse(temp_avg_C > 0 & cume_snow == lag(cume_snow), 
+                             0.25, albedo_min))%>%
+  mutate(actual_albedo = ifelse(cume_snow == 0,bare_albedo,NA),
+         actual_albedo = ifelse(snow_accum_pos > 0, 0.84, actual_albedo),
+         actual_albedo = ifelse(snow_depth_in == 0, 0.25, actual_albedo))
+         
+albedo = albedo_df_test_17$actual_albedo
+
+for(i in 1:nrow(albedo_df_test_17)){
+  if(is.na(albedo[i])){
+    albedo[i] = ((albedo[i-1]*exp(-0.01)))
+  }
+}
+
+albedo_df_test_17$actual_albedo <- albedo
+
+ggplot(albedo_df_test_17,aes(x=date,y=actual_albedo)) +
+  geom_line()+
+  theme_bw()+
+  labs(x='Day', y='Albedo')
 
 ```
 
+Versgehy 1991 albedo model on 2018-2019
+
+```{r}
+
+red_mtn_pass_assumed_snow_2018_19 <- red_mtn_pass %>%
+  select(1:4, 6:8)%>%
+  rename("date" = 1,
+         "temp_avg_F" = 2,
+         "temp_max_F" = 3,
+         "temp_min_F" = 4,
+         "precip_accum_in" = 5,
+         "snow_depth_in" = 6,
+         "SWE_in" = 7)%>%
+  filter(date > "2018-09-01")%>%
+  mutate(snow_accum = snow_depth_in - lag(snow_depth_in),
+         snow_accum_pos = ifelse(snow_accum < 0, 0, snow_accum),
+         temp_avg_C = ((temp_avg_F - 32)*(5/9)))%>%
+  mutate(date = ymd(date))
+
+albedo_df_test_18 <- red_mtn_pass_assumed_snow_2018_19 %>%
+  filter(!is.na(snow_accum),
+         !is.na(snow_accum_pos))%>%
+  mutate(bare_albedo = 0.25,
+         cume_snow = cumsum(snow_accum_pos),
+         fresh_albedo = ifelse(snow_accum_pos > 0, 0.84, NA),
+         albedo_min = ifelse(temp_avg_C < 0 & snow_accum_pos == 0, 0.7, 
+                             ifelse(temp_avg_C >= 0, 0.5, NA)),
+         albedo_min = ifelse(temp_avg_C > 0 & cume_snow == lag(cume_snow), 
+                             0.25, albedo_min))%>%
+  mutate(actual_albedo = ifelse(cume_snow == 0,bare_albedo,NA),
+         actual_albedo = ifelse(snow_accum_pos > 0, 0.84, actual_albedo),
+         actual_albedo = ifelse(snow_depth_in == 0, 0.25, actual_albedo))
+         
+albedo = albedo_df_test_18$actual_albedo
+
+for(i in 1:nrow(albedo_df_test_18)){
+  if(is.na(albedo[i])){
+    albedo[i] = ((albedo[i-1]*exp(-0.01)))
+  }
+}
+
+albedo_df_test_18$actual_albedo <- albedo
+
+ggplot(albedo_df_test_18,aes(x=date,y=actual_albedo)) +
+  geom_line()+
+  theme_bw()+
+  labs(x='Day', y='Albedo')
+
+
+```
 

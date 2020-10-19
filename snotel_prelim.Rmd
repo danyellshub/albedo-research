@@ -108,7 +108,7 @@ tm_shape(relevant_counties) +
 
 #TMAP without gunnison
 
-relevant_counties_nogun <- subset(colorado_counties, NAME %in% c('San Juan', 'San Miguel','Dolores','La Plata','Hinsdale', 'Ouray','Montrose')
+relevant_counties_nogun <- subset(colorado_counties, NAME %in% c('San Juan', 'San Miguel','Dolores','La Plata','Hinsdale', 'Ouray','Montrose'))
 
 snotel_nogun <- subset(snotel_co_mapping, county %in% c('San Juan', 'San Miguel','Dolores','La Plata','Hinsdale', 'Ouray','Montrose'))
                        
