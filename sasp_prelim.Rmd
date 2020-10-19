@@ -142,7 +142,8 @@ sasp_albedo_day_graphing_filtered <- sasp_albedo_day_graphing %>%
 ggplot(sasp_albedo_day_graphing_filtered, 
        aes(x=datetime_ds, y=albedo))+
   geom_point()+
-  facet_wrap(~filtration)
+  facet_wrap(~filtration)+
+  theme_bw() 
 
 ```
 
@@ -198,7 +199,7 @@ ggplot(sasp_noon_graph_edited, aes(x = date, y = albedo))+
   theme_bw()+
   labs(x="Date", y= "Albedo",
        title =
-         "Filtered vs unfiltered albedo measurements for two consecutive winter seasons", legend = "blank:")+
+         "SASP albedo measurements for two consecutive winter seasons", legend = "blank:")+
   theme(legend.title=element_blank())
  
 ```
@@ -225,7 +226,6 @@ dygraph(albedo_xts)%>%
 ## Dygraph of incoming radiation (noon? day? all values?)
 ## Dygraph of outgoing radiation (noon? day? all values?)
 
-```{r}
 #### NEXT PLANS
 
 #1) graph and comapre incoming vs outoing shortwave
@@ -251,9 +251,6 @@ graphing_filtration_3_15_18 <- sasp_albedo3_15_18 %>%
   select(4,5,32,35,36)%>%
   gather(., key = "filtration", 
          value = "albedo", -Date, -Hour, -Day_H2O_mm)
-
-sunrise_sunset_data %>%
-  filter(time == "2018-03-15")
   
 ggplot()+
   geom_bar(data = graphing_filtration_3_15_18,
@@ -307,9 +304,6 @@ graphing_filtration_11_06_17 <- sasp_data_11_06_17 %>%
   gather(., key = "filtration", 
          value = "albedo", -Date, -Hour, -Day_H2O_mm)
 
-sunrise_sunset_data %>%
-  filter(time == "2017-11-06")
-  
 ggplot()+
   geom_line(data = graphing_filtration_11_06_17,
             aes(x= Hour, y = albedo, color = filtration))+

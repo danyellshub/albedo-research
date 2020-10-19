@@ -27,7 +27,10 @@ library(suncalc)
 ```
 
 ```{r}
+
 sbsp <- read.csv('data/SBSP_1hr.csv')
+
+names(sbsp)
 
 #create good datetime column
 sbsp_datetime <- sbsp%>%

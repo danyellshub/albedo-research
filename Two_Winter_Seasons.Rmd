@@ -1,0 +1,116 @@
+---
+title: "Winter Seasons (2017-2019)"
+author: "Danielle Reimanis"
+date: "10/15/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(darksky)
+library(xts)
+library(dygraphs)
+library(ggthemes)
+library(suncalc)
+library(RNRCS)
+
+
+```
+
+Organizing the data - August 2017 - August 2019
+(SASP, SBSP, Red Mountain Pass SNOTEL, sunlight data)
+
+```{r}
+sasp_og <- read.csv('data/SASP_1hr.csv')
+sbsp_og <- read.csv('data/SBSP_1hr.csv')
+red_mtn_pass <- grabNRCS.data(network = 'SNTL', site_id  = '713',
+                              timescale = 'daily',
+                                DayBgn = '2017-08-01', DayEnd = '2019-07-31')
+
+
+date <- seq.Date(from = as.Date("2017-08-01", tz = "MST"), 
+                 to = as.Date("2019-07-31", tz = "MST"), 
+                 by = 1)
+
+sunlight_data <- getSunlightTimes(date = date,
+                                  lat = 37.9, 
+                                  lon = -107.7, 
+                                  tz = "MST", 
+                                  keep = c("sunrise", "solarNoon", "sunset"))
+
+sbsp <- sbsp_og   %>%
+  mutate(., Date = mdy(Date))%>%
+  mutate(., Hour0 = ifelse(nchar(Hour) < 4, 
+                          paste0("0", Hour), Hour))%>%
+  rename("date" = Date)%>%
+  mutate(., datetime_test = paste(date, Hour0, sep = " "),
+         datetime = ymd_hm(datetime_test, tz = "MST"))%>%
+  filter(datetime >= "2017-08-01 01:00:00")%>%
+  filter(datetime <= "2019-08-01 00:00:00")
+
+sasp <- sasp_og %>%
+  mutate(., Date = mdy(Date))%>%
+  mutate(., Hour0 = ifelse(nchar(Hour) < 4, 
+                          paste0("0", Hour), Hour))%>%
+  rename("date" = Date)%>%
+  mutate(., datetime_test = paste(date, Hour0, sep = " "),
+         datetime = ymd_hm(datetime_test, tz = "MST"))%>%
+  filter(datetime >= "2017-08-01 01:00:00")%>%
+  filter(datetime <= "2019-08-01 00:00:00")
+
+# Datetimes do not match starting 2019-08-13, therefore I am removing all days after 07/31/202 at midnight This analysis was done and then I went back to change the code above. It will not work now because all values are TRUE.
+# 
+# datetime_sasp <- sasp$datetime
+# datetime_sbsp <- sbsp$datetime
+# 
+# datetime_confirmation <- data.frame(sbsp = datetime_sbsp, sasp = datetime_sasp)%>%
+#   mutate(check = ifelse(datetime_sasp == datetime_sbsp, "TRUE", "FALSE"))%>%
+#   filter(check == "FALSE")
+
+
+sbsp_sunlight_combined <- sunlight_data %>%
+  mutate(sunrise = as.POSIXct(sunrise),
+         sunset = as.POSIXct(sunset))%>%
+  inner_join(sbsp, by = 'date')%>%
+  mutate(day_night = ifelse(datetime > sunrise &
+                              datetime < sunset, 'day', 'night'))%>%
+  mutate(noon_time = format(solarNoon, "%H:%M:%S"))%>%
+  mutate(noon = ifelse(hour(datetime) == hour(solarNoon), 'noon', 'NA'))
+
+sasp_sunlight_combined <- sunlight_data %>%
+  mutate(sunrise = as.POSIXct(sunrise),
+         sunset = as.POSIXct(sunset))%>%
+  inner_join(sasp, by = 'date')%>%
+  mutate(day_night = ifelse(datetime > sunrise &
+                              datetime < sunset, 'day', 'night'))%>%
+  mutate(noon_time = format(solarNoon, "%H:%M:%S"))%>%
+  mutate(noon = ifelse(hour(datetime) == hour(solarNoon), 'noon', 'NA'))
+
+sbsp_noon <- sbsp_sunlight_combined%>%
+  filter(noon == "noon")
+
+sasp_noon <- sasp_sunlight_combined%>%
+  filter(noon == "noon")
+
+```
+
+Organizing into only a few working data frames
+```{r}
+
+names(sbsp_noon)
+names(sasp_noon)
+names(red_mtn_pass)
+
+  
+
+```
+
+
