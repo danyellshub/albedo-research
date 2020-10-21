@@ -134,15 +134,15 @@ albedo_df_test_17 <- red_mtn_pass_assumed_snow_2017_18 %>%
          actual_albedo = ifelse(snow_accum_pos > 0, 0.84, actual_albedo),
          actual_albedo = ifelse(snow_depth_in == 0, 0.25, actual_albedo))
          
-albedo = albedo_df_test_17$actual_albedo
+albedo_17 = albedo_df_test_17$actual_albedo
 
 for(i in 1:nrow(albedo_df_test_17)){
-  if(is.na(albedo[i])){
-    albedo[i] = ((albedo[i-1]*exp(-0.01)))
+  if(is.na(albedo_17[i])){
+    albedo_17[i] = ((albedo_17[i-1]*exp(-0.01)))
   }
 }
 
-albedo_df_test_17$actual_albedo <- albedo
+albedo_df_test_17$actual_albedo <- albedo_17
 
 ggplot(albedo_df_test_17,aes(x=date,y=actual_albedo)) +
   geom_line()+
@@ -184,21 +184,50 @@ albedo_df_test_18 <- red_mtn_pass_assumed_snow_2018_19 %>%
          actual_albedo = ifelse(snow_accum_pos > 0, 0.84, actual_albedo),
          actual_albedo = ifelse(snow_depth_in == 0, 0.25, actual_albedo))
          
-albedo = albedo_df_test_18$actual_albedo
+albedo_18 = albedo_df_test_18$actual_albedo
 
 for(i in 1:nrow(albedo_df_test_18)){
-  if(is.na(albedo[i])){
-    albedo[i] = ((albedo[i-1]*exp(-0.01)))
+  if(is.na(albedo_18[i])){
+    albedo_18[i] = ((albedo_18[i-1]*exp(-0.01))) ### Extinction coefficient is either 0.01, likely not 0.24. 
   }
 }
 
-albedo_df_test_18$actual_albedo <- albedo
+albedo_df_test_18$actual_albedo <- albedo_18
 
 ggplot(albedo_df_test_18,aes(x=date,y=actual_albedo)) +
   geom_line()+
   theme_bw()+
   labs(x='Day', y='Albedo')
 
+
+```
+
+
+SASP snow depth against albedo for SASP and SBSP
+```{r}
+
+sasp_noon_17 <- sasp_noon%>%
+  filter(date < "2018-07-01")
+
+ggplot(sasp_noon_17, aes(x=date, y=Sno_Height_M))+
+  geom_line()+
+  theme_bw()
+
+```
+
+
+
+Snow depth vis Red Mountain Pass SNOTEL against albedo, SASP and SBSP
+
+```{r}
+
+names(red_mtn_pass_assumed_snow_2017_18)
+
+snow_depth_alb_17 <- red_mtn_pass_assumed_snow_2017_18%>%
+  mutate(snow_depth_cm = snow_depth_in*2.54,
+         SWE_cm = SWE_in*2.54,
+         snow_accum_pos_cm = snow_accum_pos*2.54)%>%
+  select(date, SWE_cm, snow_depth_cm, snow_accum_pos_cm)
 
 ```
 
