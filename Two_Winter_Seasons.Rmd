@@ -31,10 +31,13 @@ Organizing the data - August 2017 - August 2019
 ```{r}
 sasp_og <- read.csv('data/SASP_1hr.csv')
 sbsp_og <- read.csv('data/SBSP_1hr.csv')
-red_mtn_pass <- grabNRCS.data(network = 'SNTL', site_id  = '713',
-                              timescale = 'daily',
-                                DayBgn = '2017-08-01', DayEnd = '2019-07-31')
 
+# #red_mtn_pass <- grabNRCS.data(network = 'SNTL', site_id  = '713',
+#                               timescale = 'daily',
+#                                 DayBgn = '2017-08-01', DayEnd = '2019-07-31')
+#save(red_mtn_pass, file = "data/red_mtn_pas.Rdata")
+
+load("data/red_mtn_pas.Rdata")
 
 date <- seq.Date(from = as.Date("2017-08-01", tz = "MST"), 
                  to = as.Date("2019-07-31", tz = "MST"), 
@@ -99,6 +102,8 @@ sbsp_noon <- sbsp_sunlight_combined%>%
 
 sasp_noon <- sasp_sunlight_combined%>%
   filter(noon == "noon")
+
+# save(sasp_noon, file = "data/sasp_noon.Rdata")
 
 ```
 
@@ -238,13 +243,14 @@ ggplot(sasp_noon_17_alb_depth_graph)+
 
 #The following graph was filtered to remove albedo > 1
 ggplot(sasp_noon_17_alb_depth_graph %>% filter(Albedo <= 1))+
-  geom_bar(aes(x=date, y=Sno_Height_M), stat = 'identity', fill="steelblue")+
-  theme_bw()+
+  geom_bar(aes(x=date, y=Sno_Height_M), stat = 'unique', fill="steelblue")+
   geom_line(aes(x=date, y= Albedo, color=Filt_Unfilt))+
+  scale_y_continuous(name = "Albedo", sec.axis = sec_axis(~.*100, name="Snow Height (cm)"))+
+  theme_bw()+
   scale_color_manual(values = c("red","black"))+
   labs(x="Date", y="Snow Height (m) & Albedo")+
-  labs(x="Date", y="Snow Height (m) & Albedo", 
-       title = "Winter 2017-18 SASP Albedo versus SASP Snow Depth (m)")+
+  labs(x="Date", 
+       title = "Winter 2017-18 SASP Albedo versus SASP Snow Depth")+
   theme(legend.title = element_blank())
   
 
@@ -284,12 +290,14 @@ ggplot(sasp_noon_18_alb_depth_graph)+
 
 #The following graph was filtered to remove albedo > 1
 ggplot(sasp_noon_18_alb_depth_graph %>% filter(Albedo <= 1))+
-  geom_bar(aes(x=date, y=Sno_Height_M), stat = 'identity', fill="steelblue")+
-  theme_bw()+
+  geom_bar(aes(x=date, y=Sno_Height_M), stat = 'unique', fill="steelblue")+
   geom_line(aes(x=date, y= Albedo, color=Filt_Unfilt))+
+  scale_y_continuous(name = "Albedo", sec.axis = sec_axis(~.*100, name="Snow Height (cm)"))+
+  theme_bw()+
   scale_color_manual(values = c("red","black"))+
-  labs(x="Date", y="Snow Height (m) & Albedo", 
-       title = "Winter 2018-19 SASP Albedo versus SASP Snow Depth (m)")+
+  labs(x="Date", y="Snow Height (m) & Albedo")+
+  labs(x="Date", 
+       title = "Winter 2018-19 SASP Albedo versus SASP Snow Depth")+
   theme(legend.title = element_blank())
 
 ggplot(sasp_noon_18_alb_depth_graph %>% filter(Albedo <= 1))+
@@ -304,6 +312,9 @@ ggplot(sasp_noon_18_alb_depth_graph %>% filter(Albedo <= 1))+
 Red Mountain Pass Snow Depth to SASP Snow Depth
 
 ```{r}
+
+red_mtn_pass_assumed_snow <- red_mtn_pass_assumed_snow_2017_18%>%
+  rbind(., red_mtn_pass_assumed_snow_2018_19)
 
 rmp_snotel_simple <- red_mtn_pass_assumed_snow%>%
   mutate(snow_depth_cm = snow_depth_in*2.54,
@@ -390,10 +401,10 @@ ggplot(sasp_snotel_18_graph, aes(x=date, y=snow_depth_cm, color = Location))+
 
 #### Combining both years
 
-view(rmp_snotel_simple)
-str(rmp_snotel_simple)
-names(sasp_noon)
-str(sasp_noon_two_years)
+# view(rmp_snotel_simple)
+# str(rmp_snotel_simple)
+# names(sasp_noon)
+# str(sasp_noon_two_years)
 
 sasp_noon_two_years <- sasp_noon%>%
   select(date, 22:25, Sno_Height_M)%>%
@@ -437,8 +448,104 @@ ggplot(sasp_snotel_twoyears_graph, aes(x=date, y=snow_depth_cm, color = Location
 
 ```
 
+Change in Snow Depth at RMP and SASP
 
-Snow depth vs Red Mountain Pass SNOTEL against albedo, SASP and SBSP
+```{r}
+
+change_in_depth <- rmp_sasp_two_years %>%
+  select(1,3,4,10:12)%>%
+  rename("sasp_snow_depth_cm" = 6)%>%
+  mutate(snotel_change_cm = snotel_depth_cm - lag(snotel_depth_cm),
+         sasp_change_cm = sasp_snow_depth_cm - lag(sasp_snow_depth_cm))%>%
+  filter(sasp_change_cm < 50 & sasp_change_cm >-100)
+
+
+ggplot(change_in_depth, aes(x=snotel_change_cm, y=sasp_change_cm))+
+  geom_point()+
+  theme_bw()+
+  geom_abline()
+
+change_in_depth_graphing <- change_in_depth %>%
+  select(1, 7:8)%>%
+  gather(key = "snotel_sasp", value = "change_depth_cm", -date)
+
+ggplot(change_in_depth_graphing, aes(x= date, y= change_depth_cm, color = snotel_sasp))+
+  geom_point(size = 1)+
+  theme_bw()+
+  scale_color_manual(values = c("dodgerblue4","tan2"))
+
+ggplot(change_in_depth_graphing %>% filter(change_depth_cm > 0))+
+  geom_point(size = 1, aes(x= date, y= change_depth_cm, color = snotel_sasp))+
+  theme_bw()+
+  scale_color_manual(values = c("dodgerblue4","tan2"))
+
+```
+
+SASP albedo and change in snow depth at SASP
+
+```{r}
+
+sasp_change_depth_alb <- rmp_sasp_two_years %>%
+  select(1, 10:12)%>%
+  mutate(change_depth_cm = snow_height_cm - lag(snow_height_cm))%>%
+  gather(., key = "Filt_Unfilt", value = "Albedo", 
+         -date, -snow_height_cm, -change_depth_cm)%>%
+  filter(date != c("2019-03-15"),
+         date != c("2019-03-16"),
+         date != c("2019-03-22"),
+         date != c("2019-03-23"),
+         date != c("2019-03-24"),
+         date != c("2019-03-25"),
+         date != c("2019-07-11"))%>%
+  mutate(change_depth_cm_graph = change_depth_cm/20)%>%
+  filter(Albedo < 1)
+
+ggplot(sasp_change_depth_alb)+
+  geom_bar(aes(x=date, y=change_depth_cm_graph), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x=date, y= Albedo, color=Filt_Unfilt), size =0.3)+
+  scale_y_continuous(name = "Albedo", 
+                     sec.axis = sec_axis(~.*20, name="Change in Snow Depth (cm)"))+
+  scale_color_manual(values = c("red","black"))+
+  theme_bw()+
+  labs(title = "SASP Albedo versus changes in Snow Depth")
+
+```
+
+
+Breaking previous graph into two datasets based on date
+
+```{r}
+
+sasp_change_2017 <- sasp_change_depth_alb%>%
+  filter(date < "2018-07-01")
+
+ggplot(sasp_change_2017)+
+  geom_bar(aes(x=date, y=change_depth_cm_graph), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x=date, y= Albedo, color=Filt_Unfilt), size =0.3)+
+  scale_y_continuous(name = "Albedo", 
+                     sec.axis = sec_axis(~.*20, name="Change in Snow Depth (cm)"))+
+  scale_color_manual(values = c("red","black"))+
+  theme_bw()+
+  labs(title = "2017-18 SASP Albedo versus changes in Snow Depth")
+
+
+sasp_change_2018 <- sasp_change_depth_alb%>%
+  filter(date > "2018-09-01")
+
+ggplot(sasp_change_2018)+
+  geom_bar(aes(x=date, y=change_depth_cm_graph), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x=date, y= Albedo, color=Filt_Unfilt), size =0.3)+
+  scale_y_continuous(name = "Albedo", 
+                     sec.axis = sec_axis(~.*20, name="Change in Snow Depth (cm)"))+
+  scale_color_manual(values = c("red","black"))+
+  theme_bw()+
+  labs(title = "2018-19 SASP Albedo versus changes in Snow Depth")
+```
+
+
+Snow depth vs Red Mountain Pass SNOTEL against albedo, SASP
+
+*Not finished*
 
 ```{r}
 
