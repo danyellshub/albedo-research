@@ -34,29 +34,12 @@ Steven and I talked 1/4/21 about what needs to be done to finish up this semeste
 
 **Because of this new information, I will only be using Unfiltered data, as it includes visible**
 
-```{r}
-load("data/sasp_noon.Rdata")
-
-sasp_alb_depth <- sasp_noon %>%
-  select(1, 22, 24, 34)%>%
-  mutate(alb_unfilt = PyDwn_Unfilt_W/PyUp_Unfilt_W,
-         snow_depth_cm = Sno_Height_M * 100)%>%
-  filter(alb_unfilt > 0,
-         alb_unfilt < 1)%>%
-  mutate(snow_depth_cm = ifelse(is.na(snow_depth_cm), 0, snow_depth_cm),
-         snow_depth_cm = ifelse(snow_depth_cm < 0, 0, snow_depth_cm))%>%
-  select(1,5,6)%>%
-  mutate(delta_snow_depth_cm = snow_depth_cm - lag(snow_depth_cm),
-         delta_albedo = alb_unfilt - lag(alb_unfilt))%>%
-  filter(date != "2019-03-15",
-         date != "2019-03-16")
-```
-
 Objective: Complete 2017-2019 dataset
 Problem: In the 2018-2019 graphs, I noticed the albedo was 0.6 and higher even though the snow depth was 0cm. That does not make sense. 
 Plan: To incorporate depth from Red Mountain Pass Snotel to the depths that read 0 in the SASP data. 
 Justification: Refer to the two year comparison of SASP depth to SNOTEL depth. There are depth values, through the shoulder months of 2018, that were not accounted for in SASP.
 
+Preliminary:
 ```{r}
 load("data/red_mtn_pas.Rdata")
 
@@ -85,10 +68,73 @@ ggplot(simple_red_mtn_pass, aes(x=date, y=density_kg_m3))+
   labs(title = "Density for Two Years at Red Mtn Pass SNOTEL")
 
 
-
 ```
 
+What is needed to determine if SNOTEL or SASP depth should be used?
 
+SASP and SNOTEL have similar depth trends. SNOTEL has more non-NA and non-zero points than SASP. I mutated SASP depth so all NAs were turned to zeros. This turned out to hinder the results, as there were SASP days that showed an albedo greater than its non-snow equivalent (SCA = 0%). Though albedo rose to 'snow-levels' the depth read 0 still. The SNOTEL data showed there was depth on these days, at least at the the SNOTEl site. 
+
+1) What is the ground's albedo?
+The mean albedo for snow free days was 0.1618064. With values ranging from 0.1115 to 0.1919.
+
+```{r}
+
+#First I filtered the snow depth to only be 0 cm. But since there were high albedo values even with a 0 cm snow depth, I graphed the points and noticed the only spikes that occured (showing errors in the data) were all above 0.2. Next, I filtered albedo to all values less than 0.2. Then I took the average. This is the average albedo for SNOW FREE days.
+
+ground_albedo <- sasp_alb_depth %>%
+  filter(snow_depth_cm == 0,
+         alb_unfilt <= 0.2)
+
+#mean(ground_albedo$alb_unfilt)
+#summary(ground_albedo)
+```
+
+Final Steps: 
+If snow depth is 0 but albedo is greater than 0.2, I will replace the depth value (0) with the depth at SNOTEL the same day. It turns out, we just needed to replace all NA values with snotel depth values instead. Also, negative values were replaced  with SNOTEL values.
+
+```{r}
+load("data/sasp_noon.Rdata")
+
+snotel_depth_cm <- simple_red_mtn_pass$depth_cm
+snotel_swe_mm <- simple_red_mtn_pass$swe_mm
+
+sasp_alb_depth_corrected <- sasp_noon%>%
+  mutate(snotel_depth_cm = snotel_depth_cm)%>%
+  mutate(snotel_swe_mm = snotel_swe_mm)
+
+sasp_alb_depth <- sasp_alb_depth_corrected  %>%
+  select(1, 22, 24, 34, 37, 46, 47)%>%
+  mutate(alb_unfilt = PyDwn_Unfilt_W/PyUp_Unfilt_W,
+         sasp_depth_cm = Sno_Height_M * 100)%>%
+  filter(alb_unfilt > 0,
+         alb_unfilt < 1)%>%#filtering these values removes 108 observations (730->622)
+    filter(date != "2019-03-15",
+         date != "2019-03-16",
+         date != "2019-03-14",
+         date != "2019-03-13")#filtering these values removes 4 observations (622-618)
+
+alb_depth_corrected <- sasp_alb_depth %>%
+  select(1, 5:9)%>%
+  rename("sasp_precip_mm" =2)%>%
+  mutate(delta_albedo = alb_unfilt - lag(alb_unfilt))%>%
+  mutate(depth_cm = ifelse(is.na(sasp_depth_cm), snotel_depth_cm, 
+                           ifelse(sasp_depth_cm <0, snotel_depth_cm, sasp_depth_cm)))%>%
+  mutate(depth_m = depth_cm/100,
+         calc_density_kg_m3 = ifelse(depth_m == 0, 0, snotel_swe_mm/depth_m),
+         snotel_depth_m = snotel_depth_cm/100,
+         snotel_density_kg_m3 = ifelse(snotel_depth_m == 0, 0,
+                                       snotel_swe_mm/snotel_depth_m))%>%
+  select(1, 4, 5, 7:12)
+  
+# tail(sort(alb_depth_corrected$calc_density_kg_m3), 10)
+# tail(sort(alb_depth_corrected$snotel_density_kg_m3), 10)
+# this explains why I chose not to use calculated density (snotel swe/corrected sasp depth) and needed to use snotel density (snotel swe/snotel depth)
+```
+
+NEXT STEPS HERE: 
+1) Redo all these graphs with the new updated corrected depths
+2) Similar idea to the depth graphs, use density as the independent variable
+3) Focus on the 'shoulder weeks' of snowpacks and look for albedo patterns with only a few cm of depth. 
 
 2017-2018 Winter Season
 
