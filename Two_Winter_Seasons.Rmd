@@ -95,7 +95,7 @@ sasp_sunlight_combined <- sunlight_data %>%
   mutate(day_night = ifelse(datetime > sunrise &
                               datetime < sunset, 'day', 'night'))%>%
   mutate(noon_time = format(solarNoon, "%H:%M:%S"))%>%
-  mutate(noon = ifelse(hour(datetime) == hour(solarNoon), 'noon', 'NA'))
+  mutate(noon = ifelse(hour(datetime) == 12, 'noon', 'NA'))
 
 sbsp_noon <- sbsp_sunlight_combined%>%
   filter(noon == "noon")
@@ -104,6 +104,8 @@ sasp_noon <- sasp_sunlight_combined%>%
   filter(noon == "noon")
 
 # save(sasp_noon, file = "data/sasp_noon.Rdata")
+write.csv(sasp$datetime, "data/sasp_hours.csv")
+
 
 ```
 

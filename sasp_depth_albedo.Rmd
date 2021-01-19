@@ -17,6 +17,9 @@ library(lubridate)
 library(ggthemes)
 library(ggpubr)
 library(ggplot2)
+library(xts)
+library(dygraphs)
+
 
 ```
 
@@ -79,42 +82,220 @@ If snow depth is 0 but albedo is greater than 0.2, I will replace the depth valu
 
 ```{r}
 load("data/sasp_noon.Rdata")
+hkin_calculated <- read.csv(file = "data/hkin_calculated_2.csv")%>%
+  rename("date" = 1,
+         'Hkin_W' =2)%>%
+  mutate(date = mdy(date),
+         Hkin_W = as.numeric(as.character(Hkin_W)))
 
+hkin_calculated <- hkin_calculated$Hkin_W
 snotel_depth_cm <- simple_red_mtn_pass$depth_cm
 snotel_swe_mm <- simple_red_mtn_pass$swe_mm
 
+# hist(hkin_calculated)
+# hist(sasp_shortened_raw$PyUp_Unfilt_W)
+# hist(sasp_shortened_raw$PyDwn_Unfilt_W)
+
 sasp_alb_depth_corrected <- sasp_noon%>%
   mutate(snotel_depth_cm = snotel_depth_cm)%>%
-  mutate(snotel_swe_mm = snotel_swe_mm)
+  mutate(snotel_swe_mm = snotel_swe_mm,
+         hkin_calculate = hkin_calculated)
 
-sasp_alb_depth <- sasp_alb_depth_corrected  %>%
-  select(1, 22, 24, 34, 37, 46, 47)%>%
-  mutate(alb_unfilt = PyDwn_Unfilt_W/PyUp_Unfilt_W,
-         sasp_depth_cm = Sno_Height_M * 100)%>%
-  filter(alb_unfilt > 0,
-         alb_unfilt < 1)%>%#filtering these values removes 108 observations (730->622)
-    filter(date != "2019-03-15",
+sasp_shortened_raw <- sasp_alb_depth_corrected%>%
+  select(1, 22, 24, 34, 37, 46, 47, 48)
+
+#Graphing calculated Hkin to PyUp_Unfilt_W
+
+ggplot(sasp_shortened_raw, aes(x=date))+
+  geom_line(aes(y=PyUp_Unfilt_W))+
+  geom_line(aes(y=hkin_calculated), color = "purple")
+
+ggplot(sasp_shortened_raw, aes(x=PyUp_Unfilt_W, y=hkin_calculated))+
+  geom_point()+
+  geom_abline(intercept = 0)
+```
+
+
+Calibration Time
+```{r}
+hkin_correct <- sasp_shortened_raw%>%
+  select(1,2, 3, 8)%>%
+  mutate(sasp_var = PyUp_Unfilt_W/630.14,
+         calc_var = hkin_calculate/825.5,
+         new_calc = hkin_calculate/1.25,
+         albedo_old = PyDwn_Unfilt_W/PyUp_Unfilt_W,
+         new_hkin = ifelse(albedo_old < 1, PyUp_Unfilt_W, new_calc),
+         albedo = PyDwn_Unfilt_W/new_hkin,
+         coeff = hkin_calculate/PyUp_Unfilt_W)
+
+# mean(hkin_correct$PyUp_Unfilt_W)
+# mean(hkin_correct$hkin_calculate, na.rm = T)
+# 
+# max(hkin_correct$PyUp_Unfilt_W)
+# max(hkin_correct$hkin_calculate, na.rm = T)
+
+# ggplot(hkin_correct, aes(x=date, y=coeff))+
+#   geom_point()
+# ggplot(hkin_correct, aes(x=date, y=coeff))+
+#   geom_point()+
+#   ylim(min = 0.5, max =1.75)
+
+#summary(hkin_correct)
+
+# These max and mean values helped determine the coefficient that was used to calibrate back the calculated Hkin values. Mean difference was PyUp = 1.3*Calculated. Max difference. Max difference was PyUp = 1.1*Calculated. The coeff vector contains values ranging from 0.41 to 9.85 with a mean of 1.787
+# boxplot(hkin_correct$coeff, ylab = "Calculted to PyUp Coefficient")
+
+
+colors_hkin = c("PyUp" = "black", "Calculated" = "purple")
+
+ggplot(hkin_correct, aes(x=date))+
+  geom_point(aes(y=PyUp_Unfilt_W, color = "PyUp"))+
+  geom_point(aes(y=new_calc, color = "Calculated"))+
+  theme_bw()+
+  labs(x="Date", y="Incoming Solar Radiation (w/m2)", 
+       title = "Calculated with Calibration versus Sensor Data")+
+  scale_color_manual(values = colors_hkin)+
+  theme(legend.title = element_blank())
+
+ggplot(hkin_correct%>%filter(albedo_old > 1), aes(x=date))+
+  geom_point(aes(y=PyUp_Unfilt_W, color = "PyUp"))+
+  geom_point(aes(y=new_calc, color = "Calculated"))+
+  theme_bw()+
+  labs(x="Date", y="Incoming Solar Radiation (w/m2)", 
+       title = "Original Albedo filtered > 1, Calibrated Calculation")+
+  scale_color_manual(values = colors_hkin)+
+  theme(legend.title = element_blank())
+
+
+#Summary of what was done above
+
+# Original Calculations
+hkin_boxplot <- hkin_correct %>%
+  select(1, 3, 4)%>%
+  gather(., key = "type", value = "hkin_W", -date)
+
+boxplot(hkin_W~type, data = hkin_boxplot, 
+        main = "Original Calculated Hkin vs SASP Sensor Data",
+        xlab = "", ylab = "Hkin (W)")
+
+# after applying a coefficient of 1.25 to calibrate the calculations
+hkin_boxplot_new <- hkin_correct %>%
+  select(1, 3, 7)%>%
+  gather(., key = "type", value = "hkin_W", -date)
+
+boxplot(hkin_W~type, data = hkin_boxplot_new, 
+        main = "Calibrated Calculated Hkin vs SASP Sensor Data",
+        xlab = "", ylab = "Hkin (W)")
+
+# after applying a coefficient of 1.25 to calibrate the calculations and then added filter to replace too small of values (errors in the dataset) with the new calibrated calculated hkin.
+hkin_boxplot_final <- hkin_correct %>%
+  select(1, 3, 9)%>%
+  gather(., key = "type", value = "hkin_W", -date)
+
+boxplot(hkin_W~type, data = hkin_boxplot_final, 
+        main = "New Hkin Data vs SASP Sensor Data",
+        xlab = "", ylab = "Hkin (W)")
+
+# Final histrograms, with new data
+hist(hkin_correct$PyUp_Unfilt_W, xlab = "Hkin (W) SASP", 
+     main = "Histogram of Insolation values from SASP, 2017-2019")
+
+hist(hkin_correct$new_hkin, xlab = "Hkin (W) Calculated", 
+     main = "Histogram of New Calculated Insolation, 2017-2019")
+
+ggplot(hkin_correct, aes(x=PyUp_Unfilt_W, y=new_hkin))+
+  geom_point()+
+  geom_abline(intercept = 0)
+
+colors_hkin_new = c("PyUp_Hkin" = "black", "New_Hkin" = "deepskyblue3")
+
+ggplot(hkin_correct, aes(x=date))+
+  geom_point(aes(y=PyUp_Unfilt_W, color = "PyUp_Hkin"))+
+  geom_point(aes(y=new_hkin, color = "New_Hkin"))+
+  theme_bw()+
+  labs(x="Date", y="Incoming Solar Radiation (w/m2)", 
+       title = "New Hkin data, Sensor Data + Calculated")+
+  scale_color_manual(values = colors_hkin_new)+
+  theme(legend.title = element_blank())
+```
+
+New Albedo Quick Glance
+```{r}
+albedo_wide <- hkin_correct%>%
+  select(1, 8,10)
+
+albedo_long <- albedo_wide%>%
+  gather(., key= "Type", value = "Albedo", -date)
+
+ggplot(albedo_comparison, aes(x=date, y=Albedo, color = Type))+
+  geom_line()
+ggplot(albedo_comparison%>%filter(Albedo > 1), aes(x=date, y=Albedo, color = Type))+
+  geom_point()
+
+# Dygraph
+albedo_xts <- albedo_wide%>%
+  rename("albedo_new" =3)%>%
+  xts(., order.by = .$date)
+
+dygraph(albedo_xts)%>%
+  dyAxis('y', label='Albedo', valueRange=c(0,5))
+
+```
+
+
+Combining New HKin, Albedo with SNOTEL
+```{r}
+albedo_old <- hkin_correct$albedo_old
+albedo <- hkin_correct$albedo
+hkin_new <- hkin_correct$new_hkin
+
+sasp_alb_depth_new <- sasp_shortened_raw%>%
+  mutate(albedo_old = albedo_old,
+         albedo = albedo,
+         hkin_new = hkin_new,
+         sasp_depth_cm = Sno_Height_M * 100,
+         new_calc = hkin_calculate/1.25)%>%
+  filter(albedo < 1)%>% # this went from 730 to 696 (34 dropped)
+  select(1:3,8,13,11,6,7,12,9,10)%>%
+  rename("og_calc" = 4)%>%
+  filter(date != "2019-03-15",
          date != "2019-03-16",
          date != "2019-03-14",
-         date != "2019-03-13")#filtering these values removes 4 observations (622-618)
-
-alb_depth_corrected <- sasp_alb_depth %>%
-  select(1, 5:9)%>%
-  rename("sasp_precip_mm" =2)%>%
-  mutate(delta_albedo = alb_unfilt - lag(alb_unfilt))%>%
+         date != "2019-03-13")# from 696 to 692 (4 dropped)
+  
+alb_depth_corrected <- sasp_alb_depth_new %>%
+  mutate(delta_albedo = albedo - lag(albedo))%>%
   mutate(depth_cm = ifelse(is.na(sasp_depth_cm), snotel_depth_cm, 
                            ifelse(sasp_depth_cm <0, snotel_depth_cm, sasp_depth_cm)))%>%
-  mutate(depth_m = depth_cm/100,
-         calc_density_kg_m3 = ifelse(depth_m == 0, 0, snotel_swe_mm/depth_m),
-         snotel_depth_m = snotel_depth_cm/100,
+  mutate(snotel_depth_m = snotel_depth_cm/100,
          snotel_density_kg_m3 = ifelse(snotel_depth_m == 0, 0,
-                                       snotel_swe_mm/snotel_depth_m))%>%
-  select(1, 4, 5:12)
-  
-# tail(sort(alb_depth_corrected$calc_density_kg_m3), 10)
-# tail(sort(alb_depth_corrected$snotel_density_kg_m3), 10)
-# this explains why I chose not to use calculated density (snotel swe/corrected sasp depth) and needed to use snotel density (snotel swe/snotel depth)
+                                       snotel_swe_mm/snotel_depth_m),
+         depth_m = depth_cm/100,
+         sasp_swe_mm = snotel_density_kg_m3*depth_m)
 ```
+
+Comparing SWE at SASP and SNOTEL
+(density has less spatial variability than depth and swe)
+```{r}
+
+hist(alb_depth_corrected$sasp_swe_mm)
+hist(alb_depth_corrected$snotel_swe_mm)
+ 
+swe_boxplot <- alb_depth_corrected%>%
+  select(1, 8, 17)%>%
+  rename("RMP" = 2, "SASP" =3)%>%
+  gather(., key = "Location", value = "SWE_mm", -date)
+
+boxplot(SWE_mm~Location, data = swe_boxplot)
+
+ggplot(swe_boxplot, aes(x=date, y=SWE_mm, color = Location))+
+  geom_line()+
+  theme_bw()+
+  scale_color_manual(values = c("red","darkslategrey"))+
+  labs(x="Date", y="SWE (mm)", 
+       title = "SWE measured at RMP and calculated at SASP for two Winter seasons")
+```
+
 
 Notes on alb_depth_corrected
 The point of this dataframe was to create a working dataset so if there were any NA's in the SASP depth data, we could use the depth data from SNOTEL. This also made sense since there were albedo values implying snow (>0.6) yet the snow depth at SASP was NA, or zero, but more often NA. Please refer to October 9th-26th of 2018. (Here are other days: 9/24/17,   Using the SNOTEL depth data to replace the NA's algined with some of the albedo readings. However, there were some late spring albedo readings that implied ground, ~0.17, but the snow depth (SNOTEL's depth not SASP's) was >0. Please refer to May 17th-29th of 2018. Albedo decreases, as depth decreases, but so far in the an analysis - any snow readings >0 show an albedo greater than the ground's albedo. So which is correct? 0cm of snow or simply a lower albedo due to a melting snowpack (comparable to ground levels)?
@@ -124,37 +305,39 @@ NOTES:
 **2017-2018**
 
 1) Early Snow Events
--Snow starts accumulating at SNOTEL 11/1/2017 (there are sporadic storms in October and late November)
--Snow starts accumulating at SASP 10/1/2017 (there are NAs and negatives before this day). Even though it is 'accumulating' the depth stays low, never reaching 5.3 cm until 11/1/2017. This must have been the 'season starting storm'. FOCUS ON ALBEDO HERE
--During the month of October albedo changes often and dramatically. Increases in snow depth changes the albedo. Quickly the albedo returns to ground level. 
+-Snow starts accumulating at SNOTEL 11/1/2017 (there are sporadic storms in October and late September)
+-Snow depth starts being recoreded at SASP 10/1/2017 (there are NAs and negatives before this day). Even though it is 'accumulating' the depth stays low, never reaching 5.3 cm until 11/1/2017. This must have been the 'season starting storm'.
+-During the month of October albedo changes often and dramatically. Increases in snow depth changes the albedo. Quickly the albedo returns to ground level.
 
-2) Accumulation and Melt
--Albedo steadily grew, depth steadily grew. On 1/24/18, the albedo jumps to over 0.7, there are 74.5 cm of snow depth. It stays above 0.7 and borders 0.8, 0.9 for months. All while the snow is still accumulating. 
--The peak depth at SASP was on 3/23/18 with 126.9 cm. The peak depth at SNOTEL was on 2/20/18 with 119.38 cm. The second highest depth at SASP was on 4/14/18 with 123.8 cm. The second highest depth at SNOTEL was on 4/14/18 with 116.8 cm.
--There are snow events after this max depths. Maximum SWE at SNOTEL is reached on 4/25/18 and thereafter the snow quickly melts away finishing 5/17/18 at SASP and 5/30/18 at SNOTEL.
--Albedo noticeably stops increasing and gradually decreases starting 3/23/18 returning to ground levels 5/17/18. The albedo shows very similar patterns (qualitatively) to the patterns of the snow depth. When depth increases, so does albedo and vice versa. 
--Albedo seems relative to values around it, there are multiple depths with the same albedo, but generally speaking if albedo decreases/increases same with albedo relative to where it was. 
+2) Accumulation and Melt (After 11/1/17)
+-Albedo steadily grew plaueating around 0.60-0.7, depth also steadily grew. On 1/24/18, the albedo jumps to over 0.7 and satys there for months, there are 74.5 cm of snow depth. It stays above 0.7 and borders 0.8, 0.9 for months. All while the snow is still accumulating.
+-The peak depth at SASP was on 3/23/18 with 126.9 cm. The peak depth at SNOTEL was on 2/20/18 with 119.38 cm. The second and thrd highest depths at SASP were on 2/25/18 with 126.1cm and 2/24/18 with 125.8 cm. The fourth was 3/18/18 and the fifth was 4/14/18 with 123.8 cm. The second and third highest depths at SNOTEL were on 2/25/18 and 2/26/18 with 116.84cm. The fourth highest at SNOTEL was 4/14/18 with 116.8 cm.
+-There are snow events after these max depths. Maximum SWE at SNOTEL is reached on 4/25/18 and thereafter the snow quickly melts away finishing 5/17/18 at SASP and 5/30/18 at SNOTEL.
+-Albedo noticeably stops increasing and gradually decreases starting 3/29/18-3/30/18 returning to ground levels 5/17/18. The albedo shows very similar patterns (qualitatively) to the patterns of the snow depth. When depth increases, so does albedo and vice versa.
+-Albedo seems relative to values around it, there are multiple depths with the same albedo, but generally speaking if albedo decreases/increases same with albedo relative to where it was.
 
 **2018-2019**
 
 1) Early Snow Events
--Snow starts accumulating at SNOTEL on 10/9/18. This is the first recorded snow event of the season. 
--Snow starts accumulating at SASP on 10/27/18, all previous values are NA. 
--Albedo starts increasing on 10/9/18. A jump from ground albedo (0.14) to 0.78. Fifteen cm were recorded at SNOTEL. 
+-Snow starts accumulating at SNOTEL on 10/9/18. This is the first recorded snow event of the season.
+-Snow starts accumulating at SASP on 10/27/18, all previous values are NA.
+-Albedo starts increasing on 10/9/18 (More like 10/7, but values were filtered due to high [>1] albedo). A jump from ground albedo (0.14 on 10/6/18) to 0.77 was made on 10/9. Fifteen cm were recorded at SNOTEL.
 
 2) Accumulation and Melt
--Albedo stays above 0.64 (dropping twice to values within 0.5-0.6) until the snowpack reaches 63.6 cm where the albedo stays above 0.7 (occasionally dropping to <0.7) until melt starts occuring. 
+-After accumulation starts, albedo gradually starts increasing and ranges in values from 0.5-0.9. Once the snowpack increases to 60cm, the albedo stays above 0.8 for awhile, but does range from 0.5-0.9.
 -Peak depth at SASP occurred on 3/9/19 with 280.7 cm. On 3/25/19 the snow jumps to 277.1 cm where it starts dropping after. The second highest depth at SASP was 3/18/19.
 -Snow melts until 6/26/19 when snow depth becomes negative. However, snow accumulates again and reaches 28.3 cm until it completely melts on 7/11/19. I think something is wrong here. It COULD be a summer snow storm placing a few cm down EVERY DAY, but this is unlikely. The albedo returns to ground level (<0.19) on 6/27/19.
--Peak depth at SNOTEL occurred on 3/17/19 with 281.94 cm. The second highest depth was on 3/9/18 with 276.86 cm. On 7/6/19 the snow wass completely melted at SNOTEL. 
--Peak SWE at SNOTEL occurred on 5/2/19 with 924.56 mm. All SWE is gone by 7/6/19. Interestingly, a few days of 5/2/19 have been filtered out (because albedo was >1 or <0, indicating a large storm just came through and topped off the SWE)
--Albedo stays consistently above 0.7 until 4/8/19 where it drops below 0.7 and stays there, gradually decreasing (with a few noticeable spikes), until albedo returns to ground levels on 6/27/19. 
--Similar to above, albedo tends to follow similar relative trends to that of snow depth. Slight decreases in snow depth show slight decreases in albedo. 
+-Peak depth at SNOTEL occurred on 3/17/19 with 281.94 cm. The second highest depth was on 3/9/18 with 276.86 cm. On 7/6/19 the snow wass completely melted at SNOTEL.
+-Peak SWE at SNOTEL occurred on 5/2/19 with 924.56 mm. All SWE is gone by 7/6/19. 
+-Albedo stays consistently above 0.7 until 4/8/19 where it drops below 0.7 and stays there, gradually decreasing (with a few noticeable spikes), until albedo returns to ground levels on 6/27/19.
+-Similar to above, albedo tends to follow similar relative trends to that of snow depth. Slight decreases in snow depth show slight decreases in albedo.
 
 Short term: Create dataframe to replace these values (5/17/18-5/29/18) & (6/27/19-7/11/19) with 0 cm snow depth. 
 
 ```{r}
-alb_depth_corrected_2 <- alb_depth_corrected %>%
+
+albedo_snow_final <- alb_depth_corrected%>%
+  select(1,2,6,11,13, 9, 7, 8, 17)%>%
   mutate(depth_cm = ifelse(date < "2018-05-30" &
                              date > "2018-05-16", 0 ,depth_cm),
          depth_cm = ifelse(date < "2019-07-12" &
@@ -163,17 +346,17 @@ alb_depth_corrected_2 <- alb_depth_corrected %>%
 ```
 
 1) What is the ground's albedo?
-The mean albedo for snow free days was 0.1618064. With values ranging from 0.1115 to 0.1919.
+The mean albedo for snow free days was 0.1611914. With values ranging from 0.1115 to 0.1919.
 
 ```{r}
 
 #First I filtered the snow depth to only be 0 cm. But since there were high albedo values even with a 0 cm snow depth, I graphed the points and noticed the only spikes that occured (showing errors in the data) were all above 0.2. Next, I filtered albedo to all values less than 0.2. Then I took the average. This is the average albedo for SNOW FREE days.
 
-ground_albedo <- alb_depth_corrected %>%
+ground_albedo <- albedo_snow_final %>%
   filter(depth_cm == 0,
-         alb_unfilt <= 0.2)
+         albedo <= 0.2)
 
-#mean(ground_albedo$alb_unfilt)
+#mean(ground_albedo$albedo)
 #summary(ground_albedo)
 ```
 
@@ -184,17 +367,18 @@ ground_albedo <- alb_depth_corrected %>%
 #filtered for snow-on. first day of accumulation was 9/24/17 last day of melt was 5/17/18
 #This first day and last day are chosen so the new dataset starts at 0 cm depth, and ends with 0 cm depth.
 
-#grouped albedo by the mean of albedo values (mean = 0.5928825)
-#mean depth is 51.06289 cm
-#I chose a depth of 70 because that's when I noticed albedo levels peaking
+#grouped albedo by the mean of albedo values (0.6070078)
+#mean depth is 54.82018 cm
+#I chose a depth of 70 because that's when I noticed albedo levels peakingx
 
-sasp_17_18 <- alb_depth_corrected_2 %>%
-  filter(date < "2018-05-18",
-         date > "2017-09-22")%>%
-  mutate(alb_group = ifelse(alb_unfilt <0.6, "Albedo<0.6", "Albedo>0.6"),
+sasp_17_18 <- albedo_snow_final %>%
+  filter(date < "2018-05-25",
+         date > "2017-09-15")%>%
+  mutate(alb_group = ifelse(albedo <0.6, "Albedo<0.6", "Albedo>0.6"),
          depth_group = ifelse(depth_cm <= 70, "Depth<70_cm", "Depth>70_cm"),
          date_group = ifelse(date <= "2018-04-14", "Accumulation", "Melt"))%>%
-  mutate(delta_snow_depth_cm = depth_cm - lag(depth_cm))
+  mutate(delta_snow_depth_cm = depth_cm - lag(depth_cm),
+         delta_albedo = albedo -lag(albedo))
 ```
 
 Plots for 2017 - 2018 Snow Season RE: depth and albedo
@@ -206,7 +390,7 @@ ggplot(sasp_17_18, aes(x=delta_snow_depth_cm, y=delta_albedo,
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
-  labs(title = "Change in albedo and snow depth at SASP: 9/23/2017 - 05/17/2018",
+  labs(title = "Change in albedo and snow depth at SASP: 9/16/2017 - 05/25/2018",
        x=expression(Delta*" Snow Depth (cm)"), y=expression(Delta*" Broadband Albedo"))
 
 #Close up of (0,0)
@@ -216,7 +400,7 @@ ggplot(sasp_17_18, aes(x=delta_snow_depth_cm, y=delta_albedo,
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
-  labs(title = "Change in albedo and snow depth at SASP: 9/23/2017 - 05/17/2018",
+  labs(title = "Change in albedo and snow depth at SASP: 9/16/2017 - 05/25/2018",
        x=expression(Delta*" Snow Depth (cm)"), y=expression(Delta*" Broadband Albedo"))+
   xlim(min = -5, max = 5)+
   ylim(min = -0.2, max = 0.2)
@@ -228,57 +412,57 @@ ggplot(sasp_17_18, aes(x=delta_snow_depth_cm, y=delta_albedo,
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
-  labs(title = "Change in albedo and snow depth at SASP: 9/23/2017 - 05/17/2018",
-       x=expression(Delta*" Snow Depth (cm)"), y=expression(Delta*" Broadband Albedo"))+
+  labs(title = "Change in albedo and snow depth at SASP: 9/16/2017 - 05/25/2018",
+       x=expression(Delta*" Snow Depth (cm)"), y=expression(Delta*"Broadband Albedo"))+
   geom_smooth(method = "lm", se = FALSE, color = "black")+
-  stat_regline_equation(label.x.npc = 0.65, label.y.npc = 0.75)
+  stat_regline_equation(label.x.npc = 0.45, label.y.npc = 0.85)
  
 #Change in depth to albedo
-ggplot(sasp_17_18, aes(x=delta_snow_depth_cm, y=alb_unfilt, 
+ggplot(sasp_17_18, aes(x=delta_snow_depth_cm, y=albedo, 
                        color = date, shape = depth_group))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
-  labs(title = "Albedo vs changes in snow depth at SASP: 9/23/2017 - 05/17/2018",
+  labs(title = "Albedo vs changes in snow depth at SASP: 9/16/2017 - 05/25/2018",
        x=expression(Delta*" Snow Depth (cm)"), y=expression("Broadband Albedo"))
 
 #Change in depth versus albeo with stat regression line and considering ground albedo
-ggplot(sasp_17_18, aes(x=delta_snow_depth_cm, y=alb_unfilt, 
+ggplot(sasp_17_18, aes(x=delta_snow_depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
-  labs(title = "Albedo vs snow depth at SASP: 9/23/2017 - 05/17/2018",
+  labs(title = "Albedo vs snow depth at SASP: 9/16/2017 - 05/25/2018",
        x=expression(Delta*"Snow Depth (cm)"), y=expression(Delta*"Broadband Albedo"))+
   geom_smooth(method = "lm", se = FALSE, color = "black")+
   stat_regline_equation(label.x.npc = 0.5, label.y.npc = 0.95)
 
 #Filtering out the ground albedo levels
-ggplot(sasp_17_18%>%filter(alb_unfilt > 0.2), aes(x=delta_snow_depth_cm, y=alb_unfilt, 
+ggplot(sasp_17_18%>%filter(albedo > 0.2), aes(x=delta_snow_depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
-  labs(title = "Albedo vs snow depth at SASP: 9/23/2017 - 05/17/2018",
+  labs(title = "Albedo vs snow depth at SASP: 9/16/2017 - 05/25/2018",
        x=expression(Delta*"Snow Depth (cm)"), y=expression(Delta*"Broadband Albedo"))+
   geom_smooth(method = "lm", se = FALSE, color = "black")+
   stat_regline_equation(label.x.npc = 0.5, label.y.npc = 0.95)
 
 #Normal depth vs albedo
-ggplot(sasp_17_18, aes(x=depth_cm, y=alb_unfilt, 
+ggplot(sasp_17_18, aes(x=depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
-  labs(title = "Albedo vs snow depth at SASP: 9/23/2017 - 05/17/2018",
+  labs(title = "Albedo vs snow depth at SASP: 9/16/2017 - 05/25/2018",
        x=expression("Snow Depth (cm)"), y=expression("Broadband Albedo"))
 
 #Depth versus albeo with stat regression line
-ggplot(sasp_17_18, aes(x=depth_cm, y=alb_unfilt, 
+ggplot(sasp_17_18, aes(x=depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
@@ -290,26 +474,26 @@ ggplot(sasp_17_18, aes(x=depth_cm, y=alb_unfilt,
   stat_regline_equation(label.x.npc = 0.5, label.y.npc = 0.95)
 
 #Filtering out ground albedo values
-ggplot(sasp_17_18%>%filter(alb_unfilt > 0.2), aes(x=depth_cm, y=alb_unfilt, 
+ggplot(sasp_17_18%>%filter(albedo > 0.2), aes(x=depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
-  labs(title = "Albedo vs snow depth at SASP: 9/23/2017 - 05/17/2018",
+  labs(title = "Albedo vs snow depth at SASP: 9/16/2017 - 05/25/2018",
        x=expression("Snow Depth (cm)"), y=expression("Broadband Albedo"))+
   geom_smooth(method = "lm", se = FALSE, color = "black")+
   stat_regline_equation(label.x.npc = 0.5, label.y.npc = 0.95)
 
 #With a line (to trace dates)
-ggplot(sasp_17_18, aes(x=depth_cm, y=alb_unfilt, 
+ggplot(sasp_17_18, aes(x=depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
   geom_point()+
   geom_path()+
   theme_bw()+
-  labs(title = "Albedo vs snow depth at SASP: 9/23/2017 - 05/17/2018",
+  labs(title = "Albedo vs snow depth at SASP: 9/16/2017 - 05/25/2018",
        x=expression("Snow Depth (cm)"), y=expression("Broadband Albedo"))
 
 ```
@@ -321,13 +505,14 @@ ggplot(sasp_17_18, aes(x=depth_cm, y=alb_unfilt,
 #grouped albedo by the mean of albedo values (mean = 0.6938157)
 #mean depth is 132.29 cm
 
-sasp_18_19 <- alb_depth_corrected_2 %>%
-  filter(date > "2018-10-05",
-         date < "2019-06-28")%>%
-  mutate(alb_group = ifelse(alb_unfilt <0.6, "Albedo<0.6", "Albedo>0.6"),
+sasp_18_19 <- albedo_snow_final %>%
+  filter(date > "2018-10-03",
+         date < "2019-06-30")%>%
+  mutate(alb_group = ifelse(albedo <0.6, "Albedo<0.6", "Albedo>0.6"),
          depth_group = ifelse(depth_cm <= 70, "Depth<70_cm", "Depth>70_cm"),
-         date_group = ifelse(date <= "2018-03-18", "Accumulation", "Melt"))%>%
-  mutate(delta_snow_depth_cm = depth_cm - lag(depth_cm))
+         date_group = ifelse(date <= "2018-05-02", "Accumulation", "Melt"))%>%
+  mutate(delta_snow_depth_cm = depth_cm - lag(depth_cm),
+          delta_albedo = albedo -lag(albedo))
 
 ```
 
@@ -368,7 +553,7 @@ ggplot(sasp_18_19, aes(x=delta_snow_depth_cm, y=delta_albedo,
   stat_regline_equation(label.x.npc = 0.4, label.y.npc = 0.75)
 
 #Change in depth to albedo
-ggplot(sasp_18_19, aes(x=delta_snow_depth_cm, y=alb_unfilt, 
+ggplot(sasp_18_19, aes(x=delta_snow_depth_cm, y=albedo, 
                        color = date, shape = depth_group))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
@@ -378,7 +563,7 @@ ggplot(sasp_18_19, aes(x=delta_snow_depth_cm, y=alb_unfilt,
        x=expression(Delta*" Snow Depth (cm)"), y=expression("Broadband Albedo"))
 
 #Change in depth versus albeo with stat regression line and considering ground albedo
-ggplot(sasp_18_19, aes(x=delta_snow_depth_cm, y=alb_unfilt, 
+ggplot(sasp_18_19, aes(x=delta_snow_depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
@@ -390,7 +575,7 @@ ggplot(sasp_18_19, aes(x=delta_snow_depth_cm, y=alb_unfilt,
   stat_regline_equation(label.x.npc = 0.4, label.y.npc = 0.65)
 
 #Filtering ground albedo levels
-ggplot(sasp_18_19%>%filter(alb_unfilt >0.2), aes(x=delta_snow_depth_cm, y=alb_unfilt, 
+ggplot(sasp_18_19%>%filter(albedo >0.2), aes(x=delta_snow_depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
@@ -402,7 +587,7 @@ ggplot(sasp_18_19%>%filter(alb_unfilt >0.2), aes(x=delta_snow_depth_cm, y=alb_un
   stat_regline_equation(label.x.npc = 0.4, label.y.npc = 0.65)
 
 #Normal depth vs albedo
-ggplot(sasp_18_19, aes(x=depth_cm, y=alb_unfilt, 
+ggplot(sasp_18_19, aes(x=depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
@@ -412,7 +597,7 @@ ggplot(sasp_18_19, aes(x=depth_cm, y=alb_unfilt,
        x=expression("Snow Depth (cm)"), y=expression("Broadband Albedo"))
 
 #Depth versus albeo with stat regression line considering ground albedo
-ggplot(sasp_18_19, aes(x=depth_cm, y=alb_unfilt, 
+ggplot(sasp_18_19, aes(x=depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
@@ -424,7 +609,7 @@ ggplot(sasp_18_19, aes(x=depth_cm, y=alb_unfilt,
   stat_regline_equation(label.x.npc = 0.6, label.y.npc = 0.5)
 
 #Filtering out ground albedo values
-ggplot(sasp_18_19%>%filter(alb_unfilt >0.2), aes(x=depth_cm, y=alb_unfilt, 
+ggplot(sasp_18_19%>%filter(albedo >0.2), aes(x=depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
@@ -436,7 +621,7 @@ ggplot(sasp_18_19%>%filter(alb_unfilt >0.2), aes(x=depth_cm, y=alb_unfilt,
   stat_regline_equation(label.x.npc = 0.6, label.y.npc = 0.5)
 
 #With a line (to trace dates)
-ggplot(sasp_18_19, aes(x=depth_cm, y=alb_unfilt, 
+ggplot(sasp_18_19, aes(x=depth_cm, y=albedo, 
                        color = date))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
@@ -467,7 +652,10 @@ sasp_17_19 <-sasp_17_18 %>%
                                ifelse(month == 9, "Sep",
                                 ifelse(month == 10, "Oct",
                                  ifelse(month == 11, "Nov",
-                                  ifelse(month == 12, "Dec", 0)))))))))))))
+                                  ifelse(month == 12, "Dec", 0)))))))))))),
+         season = ifelse(year == "2018" & month %in% c(1,2,3,4,5,6), "2017-2018", 
+                   ifelse(year == "2018" & month %in% c(7,8,9,10,11,12), "2018-2019",
+                    ifelse(year == "2017", "2017-2018", "2018-2019"))))
 
 month_color <- factor(sasp_17_19$month_color, 
                       levels = c("Sep", "Oct", "Nov", "Dec", "Jan",
@@ -494,8 +682,9 @@ ggplot(sasp_17_19, aes(x=delta_snow_depth_cm, y=delta_albedo,
   theme_bw()+  
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
-  labs(x=expression(Delta*" Snow Depth (cm)"), y=expression(Delta*"Broadband Albedo"),
-       title= "2017 - 2019: Two Winter Seasons at SASP")
+  labs(x=expression(Delta*" Snow Depth (cm)"), y=expression(Delta*" Broadband Albedo"),
+       title= "2017 - 2019: Two Winter Seasons at SASP")+
+  theme(legend.title = element_blank())
 
 #Zoomed in on (0,0)
 ggplot(sasp_17_19, aes(x=delta_snow_depth_cm, y=delta_albedo, 
@@ -529,7 +718,9 @@ ggplot(sasp_17_19, aes(x=delta_snow_depth_cm, y=alb_unfilt,
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
   labs(x=expression(Delta*" Snow Depth (cm)"), y=expression("Broadband Albedo"),
-       title= "2017 - 2019: Two Winter Seasons at SASP")
+       title= "2017 - 2019: Two Winter Seasons at SASP")+
+  theme(legend.title = element_blank())
+  
 
 
 #Change in depth versus albeo with stat regression line and considering ground albedo
@@ -556,13 +747,14 @@ ggplot(sasp_17_19%>%filter(alb_unfilt > 0.2), aes(x=delta_snow_depth_cm, y=alb_u
 
 #Normal depth vs albedo
 ggplot(sasp_17_19, aes(x=depth_cm, y=alb_unfilt, 
-                       color = month_color))+
+                       color = month_color, shape = season))+
   geom_hline(yintercept=0)+
   geom_vline(xintercept=0)+
   geom_point()+
   theme_bw()+
   labs(title = "2017 - 2019: Two Winter Seasons at SASP",
-       x=expression("Snow Depth (cm)"), y=expression("Broadband Albedo"))
+       x=expression("Snow Depth (cm)"), y=expression("Broadband Albedo"))+
+  theme(legend.title = element_blank())
 
 #Depth versus albeo with stat regression line
 ggplot(sasp_17_19, aes(x=depth_cm, y=alb_unfilt))+
@@ -589,11 +781,290 @@ ggplot(sasp_17_19%>%filter(alb_unfilt > 0.2), aes(x=depth_cm, y=alb_unfilt))+
 ```
 
 
-
 NEXT STEPS HERE: 
-2) Use the lm() function to calculate R squared values
-4) Focus on the 'shoulder weeks' of snowpacks and look for albedo patterns with only a few cm of depth. 
-3) Similar idea to the depth graphs, use density as the independent variable
+1) Use the lm() function to calculate R squared values
+2) Look at 2008, 2009, these are dust years
+3) Focus on the 'shoulder weeks' of snowpacks and look for albedo patterns with only a few cm of depth. 
+4) Similar idea to the depth graphs, use density as the independent variable
+
+Shoulder Weeks
+
+What defines a shoulder week? 
+What is the cut off before albedo starts to plateau?
 
 
+Plots for pre-analysis 2017-2018
+```{r}
+ggplot(sasp_17_18%>%filter(date < "2017-11-01"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/10), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*10, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="9/16/17-10/31/17: SASP Pre-Accumulation, Albedo and Depth")
+
+ggplot(sasp_17_18%>%filter(date < "2018-01-07"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/50), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*50, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="9/16/17-1/6/17: SASP First Weeks, Albedo and Depth")
+
+ggplot(sasp_17_18%>%filter(date < "2018-04-13", date >= "2018-01-07"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/200), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*200, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="1/7/17-4/12/18: SASP Accumulation, Albedo and Depth")
+
+ggplot(sasp_17_18%>%filter(date >= "2018-04-13"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/200), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*200, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="4/13/18-5/24/18: SASP Melt, Albedo and Depth")
+
+ggplot(sasp_17_18%>%filter(date >= "2018-03-23"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/130), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*130, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="3/23/18-5/24/18: SASP Melt from depth, Albedo and Depth")
+```
+
+
+Grouped by Depth and SWE and melt
+
+```{r}
+grouped_sasp_17_18 <- sasp_17_18 %>%
+  mutate(timing = ifelse(date < "2017-11-01", "First Events", 
+                   ifelse(date >="2017-11-01" & date <"2018-03-23", "Accummulating_depth",
+                   ifelse(date >= "2018-03-23" & date < "2018-04-14", 
+                    "Accummulating_SWE","Melting"))))
+
+timing_group_17_18 <- factor(grouped_sasp_17_18$timing,
+                       levels = c("First Events", "Accummulating_depth", 
+                                  "Accummulating_SWE", "Melting"), ordered = TRUE)
+grouped_sasp_17_18$timing <- timing_group_17_18
+
+ggplot(grouped_sasp_17_18, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/200), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*200, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="9/16/17-5/24/18: SASP Full Season, Albedo and Depth")+
+  facet_wrap(vars(timing), scales = "free_x", nrow = 1)
+
+ggplot(grouped_sasp_17_18, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/200), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo, color = timing))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*200, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="9/16/17-5/24/18: SASP Full Season, Albedo and Depth")+
+  theme(legend.title = element_blank())
+
+```
+
+Plots for pre-analysis 2018-2019
+```{r}
+ggplot(sasp_18_19%>%filter(date <= "2019-05-02"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/300), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*300, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="10/4/18-5/1/19: SASP Accumulation, Albedo and Depth")
+
+ggplot(sasp_18_19%>%filter(date <= "2019-03-09"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/300), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*300, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="10/4/18-3/9/19: SASP Peak Depth, Albedo and Depth")
+
+ggplot(sasp_18_19%>%filter(date < "2019-05-02", date >= "2019-03-09"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/400), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*400, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="3/9/19-5/19: SASP Melt Start, Albedo and Depth")
+
+ggplot(sasp_18_19%>%filter(date >= "2019-05-02"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/400), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*400, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="5/2/19-6/29/19: SASP Melt, Albedo and Depth")
+
+ggplot(sasp_18_19%>%filter(date >= "2019-05-27"), aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/400), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*400, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="5/27/19-6/29/19: SASP Melt from depth, Albedo and Depth")
+```
+
+
+```{r}
+grouped_sasp_18_19 <- sasp_18_19 %>%
+  mutate(timing = ifelse(date < "2019-03-09", "Accummulating_depth", 
+                   ifelse(date >="2019-03-09" & date <"2019-05-02", 
+                      "Accummulating_SWE","Melting")))
+
+timing_group_18_19 <- factor(grouped_sasp_18_19$timing,
+                       levels = c("Accummulating_depth", 
+                                  "Accummulating_SWE", "Melting"), ordered = TRUE)
+grouped_sasp_18_19$timing <- timing_group_18_19
+
+ggplot(grouped_sasp_18_19, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/400), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*400, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="10/4/18-6/29/19: SASP Full Season, Albedo and Depth")+
+  facet_wrap(vars(timing), scales = "free_x", nrow =1)
+
+ggplot(grouped_sasp_18_19, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/400), stat = 'unique', fill="steelblue")+
+  geom_line(aes(x = date, y = albedo, color = timing))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*400, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="10/4/18-6/29/19: SASP Full Season, Albedo and Depth")+
+  theme(legend.title = element_blank())
+  
+```
+
+Grouped by depth only 2017 - 2018
+
+```{r}
+sasp_17_18_depth <- sasp_17_18 %>%
+    mutate(depth_label = ifelse(depth_cm >=0 & depth_cm < 6,"0-5",
+                        ifelse(depth_cm >= 6 & depth_cm < 16, "6-15", 
+                          ifelse(depth_cm >= 16 & depth_cm < 31, "16-30",
+                             ifelse(depth_cm >=31 & depth_cm < 61, "31-60",
+                              ifelse(depth_cm >=61 & depth_cm < 91, "61-90",
+                               ifelse(depth_cm >=91 & depth_cm < 121, "91-120",
+                                ifelse(depth_cm >= 121 & depth_cm < 151, "121-150", NA))))))),
+           albedo_label = ifelse(albedo < 0.6, "0-0.6",
+                            ifelse(albedo > 0.6 & albedo < 0.75, "0.6-0.75", ">0.75")))
+
+depth_group_17_18 <- factor(sasp_17_18_depth$depth_label,
+                            levels = c("0-5", "6-15", "16-30","31-60","61-90","91-120","121-150"),
+                                       ordered = TRUE)
+albedo_group_17_18 <- factor(sasp_17_18_depth$albedo_label,
+                             levels = c("0-0.6","0.6-0.75", ">0.75"),
+                             ordered = TRUE)
+sasp_17_18_depth$depth_label <- depth_group_17_18
+sasp_17_18_depth$albedo_label <- albedo_group_17_18
+
+ggplot(sasp_17_18_depth, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/200), stat = 'unique', fill="steelblue")+
+  geom_point(aes(x = date, y = albedo), size =1)+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*200, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="9/16/17-5/24/18: SASP Full Season, Albedo and Depth")+
+  facet_wrap(vars(depth_label), scales = "free_y", ncol = 1)+
+  geom_hline(yintercept = 0.75, color = "lightslategrey")
+
+ggplot(sasp_17_18_depth, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/200), stat = 'unique', fill="steelblue")+
+  geom_point(aes(x = date, y = albedo), size =1)+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*200, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="9/16/17-5/24/18: SASP Full Season, Albedo and Depth")+
+  facet_wrap(vars(albedo_label), scales = "free_y", ncol = 1)
+
+ggplot(sasp_17_18_depth, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/200), stat = 'unique', fill="steelblue")+
+  geom_point(aes(x = date, y = albedo), size =1)+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*200, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="9/16/17-5/24/18: SASP Full Season, Albedo and Depth")+
+  facet_grid(depth_label~albedo_label)
+  facet_wrap(vars(albedo_label, depth_label), labeller = "label_both", ncol=7)
+
+```
+
+A Little Analysis on last graph
+```{r}
+
+
+```
+
+
+Grouped by depth only 2018 - 2019
+
+```{r}
+
+ggplot(sasp_18_19, aes (x=date, y=depth_cm))+
+  geom_line()
+
+sasp_18_19_depth <- sasp_18_19 %>%
+    mutate(depth_label = ifelse(depth_cm >=0 & depth_cm < 6,"0-5",
+                        ifelse(depth_cm >= 6 & depth_cm < 16, "6-15", 
+                          ifelse(depth_cm >= 16 & depth_cm < 31, "16-30",
+                             ifelse(depth_cm >=31 & depth_cm < 61, "31-60",
+                              ifelse(depth_cm >=61 & depth_cm < 91, "61-90",
+                               ifelse(depth_cm >=91 & depth_cm < 121, "91-120",
+                                ifelse(depth_cm >= 121 & depth_cm < 151, "121-150", ">150"))))))),
+           albedo_label = ifelse(albedo < 0.6, "0-0.6",
+                            ifelse(albedo > 0.6 & albedo < 0.75, "0.6-0.75", ">0.75")))
+
+depth_group_18_19 <- factor(sasp_18_19_depth$depth_label,
+                            levels = c("0-5", "6-15", "16-30","31-60","61-90","91-120","121-150", ">150"),
+                                       ordered = TRUE)
+albedo_group_18_19  <- factor(sasp_18_19_depth$albedo_label,
+                             levels = c("0-0.6","0.6-0.75", ">0.75"),
+                             ordered = TRUE)
+sasp_18_19_depth$depth_label <- depth_group_18_19 
+sasp_18_19_depth$albedo_label <- albedo_group_18_19
+
+str(sasp_18_19_depth)
+
+ggplot(sasp_18_19_depth)+ 
+  geom_bar(aes(x = date, y = depth_cm/400), stat = 'unique', fill="steelblue")+
+  geom_point(aes(x = date, y = albedo), size =1)+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*400, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="10/4/18-6/29/19: SASP Full Season, Albedo and Depth")+
+  facet_wrap(vars(depth_label), scales = "free_y", ncol = 1)+
+  geom_hline(yintercept = 0.75, color = "lightslategrey")
+
+ggplot(sasp_18_19_depth, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/400), stat = 'unique', fill="steelblue")+
+  geom_point(aes(x = date, y = albedo), size =1)+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*400, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="10/4/18-6/29/19: SASP Full Season, Albedo and Depth")+
+  facet_wrap(vars(albedo_label), scales = "free_y", ncol = 1)
+
+ggplot(sasp_18_19_depth, aes(x=date))+ 
+  geom_bar(aes(x = date, y = depth_cm/400), stat = 'unique', fill="steelblue")+
+  geom_point(aes(x = date, y = albedo), size =1)+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*400, name = "Depth (cm)"))+
+  theme_bw()+
+  labs(x="Date", title="10/4/18-6/29/19: SASP Full Season, Albedo and Depth")+
+  facet_grid(depth_label~albedo_label)
+  facet_grid(vars(albedo_label, depth_label), labeller = "label_both", ncol=8)
+
+
+```
 
