@@ -1,0 +1,67 @@
+---
+title: "SASP 2009 & 2012"
+author: "Danielle Reimanis"
+date: "1/19/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyverse)
+library(tidyr)
+library(lubridate)
+library(ggthemes)
+library(ggpubr)
+library(ggplot2)
+library(xts)
+library(dygraphs)
+library(RNRCS)
+
+```
+
+Prepping data
+```{r}
+load("data/red_mtn_pass_09_12.Rdata")
+load("data/SASP_1hr.csv")
+sasp_og <- read.csv('data/SASP_1hr.csv')
+sasp <- sasp_og %>%
+  mutate(., Date = mdy(Date))%>%
+  mutate(., Hour0 = ifelse(nchar(Hour) < 4, 
+                          paste0("0", Hour), Hour))%>%
+  rename("date" = Date)%>%
+  mutate(., datetime_test = paste(date, Hour0, sep = " "),
+         datetime = ymd_hm(datetime_test, tz = "MST"))
+
+sasp_09_10 <- sasp %>%
+  filter(datetime >= "2009-09-01 01:00:00")%>%
+  filter(datetime < "2010-09-01 00:00:00")%>%
+  filter(Hour == 1200)
+
+ggplot(sasp_09_10, aes(x=date))+
+  geom_point(aes(y=PyUp_Unfilt_W), color = "orange")+
+  geom_point(aes(y=PyDwn_Unfilt_W), color = "black")
+
+sasp_12_13 <- sasp %>%
+  filter(datetime >= "2012-09-01 01:00:00")%>%
+  filter(datetime < "2013-09-01 00:00:00")%>%
+  filter(Hour == 1200)
+
+ggplot(sasp_12_13, aes(x=date))+
+  geom_point(aes(y=PyUp_Unfilt_W), color = "orange")+
+  geom_point(aes(y=PyDwn_Unfilt_W), color = "black")
+
+```
+
+Workable Data
+```{r}
+
+
+
+```
+
+
+

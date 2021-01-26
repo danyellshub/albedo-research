@@ -134,16 +134,23 @@ hkin_correct <- sasp_shortened_raw%>%
 # max(hkin_correct$PyUp_Unfilt_W)
 # max(hkin_correct$hkin_calculate, na.rm = T)
 
-# ggplot(hkin_correct, aes(x=date, y=coeff))+
-#   geom_point()
-# ggplot(hkin_correct, aes(x=date, y=coeff))+
-#   geom_point()+
-#   ylim(min = 0.5, max =1.75)
+ggplot(hkin_correct, aes(x=date, y=coeff))+
+  geom_point()+
+  theme_bw()+
+  labs(x="Date", y="Coefficient", 
+       title = "Ratio of Calculated Hkin values to Observed Hkin Values at SASP", subtitle = "2017-2019")+
+  geom_hline(yintercept = 1.25, color= "red")
 
+sd(hkin_correct$coeff, na.rm = T)
+mean(hkin_correct$coeff, na.rm = T)
+hist(hkin_correct$coeff, xlab = "Coefficient", main = "Histogram of Coefficients between Observed Hkin values and Calculated") 
+
+#median(hkin_correct$coeff, na.rm=T)
 #summary(hkin_correct)
 
-# These max and mean values helped determine the coefficient that was used to calibrate back the calculated Hkin values. Mean difference was PyUp = 1.3*Calculated. Max difference. Max difference was PyUp = 1.1*Calculated. The coeff vector contains values ranging from 0.41 to 9.85 with a mean of 1.787
-# boxplot(hkin_correct$coeff, ylab = "Calculted to PyUp Coefficient")
+# These max and mean values helped determine the coefficient that was used to calibrate back the calculated Hkin values. 
+# Taking the means of the values and Mean difference was PyUp = 1.3*Calculated. Max difference. Max difference was PyUp = 1.1*Calculated. The coeff vector contains values ranging from 0.41 to 9.85 with a mean of 1.787
+#boxplot(hkin_correct$coeff, ylab = "Calculted to PyUp Coefficient")
 
 
 colors_hkin = c("PyUp" = "black", "Calculated" = "purple")
@@ -238,7 +245,8 @@ albedo_xts <- albedo_wide%>%
   xts(., order.by = .$date)
 
 dygraph(albedo_xts)%>%
-  dyAxis('y', label='Albedo', valueRange=c(0,5))
+  dyAxis('y', label='Albedo', valueRange=c(0,5))%>%
+  dyOptions(colors=(c("black","red")))
 
 ```
 
