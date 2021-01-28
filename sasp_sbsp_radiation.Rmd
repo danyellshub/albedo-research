@@ -8,6 +8,7 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
+
 knitr::opts_chunk$set(echo = TRUE)
 
 library(dplyr)
@@ -19,12 +20,15 @@ library(ggpubr)
 library(ggplot2)
 library(stringr)
 library(purrr)
+library(xts)
+library(dygraphs)
 
 ```
 
 Workable Data Sets
 
 ```{r}
+
 # sasp_og <- read.csv('data/SASP_1hr.csv')
 # sbsp_og <- read.csv('data/SBSP_1hr.csv')
 # 
@@ -48,8 +52,9 @@ Workable Data Sets
 #   mutate(., datetime_test = paste(date, Hour0, sep = " "),
 #          datetime = ymd_hm(datetime_test, tz = "MST"))%>%
 #   filter(datetime >= "2005-01-25 12:00:00")%>%
-#   select(37,4,3,2,5,6,8,10,14,17:21, 23,29,32,32)
-# 
+#   select(37,4,3,2,5,6,8,10,14,17:21,29,32,33)
+#   
+# # 
 # save(sasp, file = "data/sasp.Rdata")
 
 load("data/sasp.Rdata")
@@ -133,6 +138,7 @@ ggplot(sasp_sbsp_boxplot_long, aes(x=datetime, y=incoming_radiation,
 
 Correcting SASP Values
 ```{r}
+
 unfilt_box <- sasp_sbsp_boxplot%>%
   select(1,2,5)%>%
   rename("SASP_Unfilt" = 2,
@@ -143,12 +149,15 @@ boxplot(Hkin~site, data = unfilt_box)
 
 ```
 
+
 ### Importing Skiles data
 ```{r}
+
 
 skiles_files <- list.files('data/Skiles_Data', full.names = TRUE)
   
 skiles_reader <- function(file){
+  
   data_names = str_sub(file, -8,-5)
   name = paste("WY", data_names, sep = "")
   df <- read_delim(file= file,
@@ -176,6 +185,7 @@ sasp_05_14_skiles <- map_dfr(skiles_files, skiles_reader)
 Noon Values
 
 ```{r}
+
 sasp_05_14_skiles_noon <- sasp_05_14_skiles%>%
   filter(hour == 12,
          date > "2005-01-24")
@@ -338,14 +348,485 @@ ggplot(sasp_depth_05_14, aes(x=wy_doy, y=depth_m))+
 
 ```
 
-Usable Hkin dataframe
+Skiles Albedo and Depth dataframe
 ```{r}
 
-names(sasp_Skiles_obs)
-names(sasp_hkin_05_14)
-sasp_hkin_05_14 <- sasp_Skiles_obs %>%
-  select(1,2,8,4,7)
-  
+sasp_alb_depth_05_14 <- sasp_05_14_skiles_noon %>%
+  select(1,2,4,5,6,8)%>%
+  mutate(wy_doy = ifelse(doy > 273, doy-273, doy+92))%>%
+  merge(., sasp_05_14_depth_noon, by = "date")%>%
+  select(1:7,14)%>%
+  rename("WY" = 2, "doy" = 3, "wy_doy" =7)%>%
+  mutate(depth_diff = correct_m - lag(correct_m))%>%
+  filter(alb_unfilt < 1)
+
+?geom_point
+
+ggplot(sasp_alb_depth_05_14, aes(x=wy_doy, y=alb_unfilt))+
+  geom_line()+
+  facet_wrap(~WY)+
+  theme_bw()+
+  labs(x = "Day of Water Year", y= "Broadband Albedo")
+
+ggplot(sasp_alb_depth_05_14, aes(x=wy_doy, y=alb_unfilt, color = WY))+
+  color_palette(palette = "PRGn", 10)+
+  geom_line()+
+  theme_bw()+
+  labs(x = "Day of Water Year", y= "Broadband Albedo")
+
+ggplot(sasp_alb_depth_05_14, aes(x=depth_diff, y=alb_unfilt, color = wy_doy))+
+  geom_point()+
+  theme_bw()+
+  labs(x = "Change in Depth (m)", y= "Broadband Albedo")+
+  facet_wrap(~WY, scales = "free_x")
 
 ```
+
+
+Skiles data with full years 2005-2014
+```{r}
+dates_05_14 <- seq.Date(from = as.Date("2005-01-25"), 
+                        to = as.Date("2014-07-01"), by = "day")%>%
+  as.data.frame()%>%
+  rename("date" =1)%>%
+  merge(., sasp_alb_depth_05_14, by = "date", all = T)
+
+
+ggplot(verseghy_map%>%filter(alb_obs<1), aes(x=alb_obs, y=alb_unfilt))+
+  geom_point()+
+  facet_wrap(~WY)+
+  geom_abline()+
+  theme_bw()
+
+ggplot(verseghy_map%>%filter(alb_obs<1), aes(x=alb_obs, y=alb_unfilt))+
+  geom_point()+
+  geom_abline()+
+  theme_bw()
+
+```
+
+Ground Albedo with Skiles data
+```{r}
+
+skiles_ground_alb <- sasp_alb_depth_05_14 %>%
+  filter(correct_m < 0.02)
+#Only 22 observations when depth =0, will use ground albedo of OG data
+#summary(skiles_ground_alb)
+
+```
+
+
+Verseghy 1991 
+
+Assumed: 
+Max albedo = 0.84
+Non-melt albedo = 0.7
+Melting albedo = 0.5 
+Bare Ground = 0.16
+
+```{r}
+average_temp <- sasp%>%
+  filter(Hour == 1200)%>%
+  mutate(avg_temp_c = (LoAir_Min_C+LoAir_Max_C)/2)%>%
+  select(2,18)
+sasp_obs <- sasp_Skiles_obs%>%
+  select(1,6,7)
+sasp_alb_depth_05_14_all <- sasp_alb_depth_05_14%>%
+  merge(., average_temp, by='date')%>%
+  merge(., sasp_obs, by = 'date')%>%
+  mutate(alb_obs = hkout_obs/hkin_obs)
+
+
+verseghy_test_2005 <- sasp_alb_depth_05_14_all%>%
+  filter(WY == "WY2005")%>%
+  filter(!is.na(depth_diff))%>%
+  mutate(bare_albedo = 0.16,
+         depth_diff_pos = ifelse(depth_diff >0, depth_diff, 0),
+         cume_snow = cumsum(depth_diff_pos),
+         albedo_min = ifelse(avg_temp_c < 0 & depth_diff_pos == 0, 0.7, 
+                             ifelse(avg_temp_c >= 0, 0.5, NA)),
+         albedo_min = ifelse(avg_temp_c > 0 & cume_snow == lag(cume_snow), 
+                             0.16, albedo_min))%>%
+  mutate(vrsg_albedo = ifelse(cume_snow == 0,bare_albedo,NA),
+         vrsg_albedo = ifelse(depth_diff_pos > 0, 0.84, vrsg_albedo),
+         vrsg_albedo = ifelse(correct_m == 0, 0.18 , vrsg_albedo))
+ 
+albedo_05 = verseghy_test_2005$vrsg_albedo
+
+for(i in 1:nrow(verseghy_test_2005)){
+  if(is.na(albedo_05[i])){
+    albedo_05[i] = ((albedo_05[i-1]*exp(-0.01)))
+  }
+}
+
+verseghy_test_2005$vrsg_albedo <- albedo_05
+
+ggplot(verseghy_test_2005, aes(x=wy_doy))+
+  geom_point(aes(y=alb_obs), color = "black")+
+  geom_line(aes(y=vrsg_albedo),color= "sienna")+
+  geom_line(aes(y=alb_unfilt), color = "cadetblue4")+
+  ylim(c(0,1))+
+  theme_bw()+
+  labs(x="Day of Water Year", y="Broadband Albedo", 
+       title = "WY 2008 Albedo Observed vs Modeled",
+       subtitle= "Black = Observed, Brown = Verseghy Model, Green = Skiles Corrections")
+
+```
+
+
+Function Time
+
+```{r}
+verseghy_function <- function(wy){
+df <- sasp_alb_depth_05_14_all%>%
+  filter(WY == wy)%>%
+  filter(!is.na(depth_diff))%>%
+  mutate(bare_albedo = 0.16,
+         depth_diff_pos = ifelse(depth_diff >0, depth_diff, 0),
+         cume_snow = cumsum(depth_diff_pos),
+         albedo_min = ifelse(avg_temp_c < 0 & depth_diff_pos == 0, 0.7, 
+                             ifelse(avg_temp_c >= 0, 0.5, NA)),
+         albedo_min = ifelse(avg_temp_c > 0 & cume_snow == lag(cume_snow), 
+                             0.16, albedo_min))%>%
+  mutate(vrsg_albedo = ifelse(cume_snow == 0,bare_albedo,NA),
+         vrsg_albedo = ifelse(depth_diff_pos > 0, 0.84, vrsg_albedo),
+         vrsg_albedo = ifelse(correct_m == 0, 0.18 , vrsg_albedo))
+ 
+albedo_loop = df$vrsg_albedo
+
+for(i in 1:nrow(df)){
+  if(is.na(albedo_loop[i])){
+    albedo_loop[i] = ((albedo_loop[i-1]*exp(-0.01)))
+  }
+}
+
+df$vrsg_albedo <- albedo_loop
+
+return(df)
+
+}
+```
+
+Testing Function Out
+```{r}
+wy_skiles_string <- unique(sasp_alb_depth_05_14_all$WY)
+
+verseghy_map <- map_dfr(wy_skiles_string, verseghy_function)
+
+ggplot(verseghy_map, aes(x=wy_doy))+
+  geom_point(aes(y=alb_obs), color = "black", size = 0.5)+
+  geom_line(aes(y=vrsg_albedo),color= "sienna")+
+  geom_line(aes(y=alb_unfilt), color = "cadetblue4")+
+  ylim(c(0,1))+
+  theme_bw()+
+  facet_wrap(~WY)+
+  labs(x="Day of Water Year", y="Broadband Albedo", 
+       title = "Albedo Observed vs Modeled",
+       subtitle= "Black = Observed, Brown = Verseghy Model, Green = Skiles Corrections")
+
+```
+
+```{r}
+verseghy_long <- verseghy_map%>%
+  select(1,2,3,7,8,6,13,18)%>%
+  rename("Skiles_Data" = 6,
+         "Observed" = 7,
+         "USACoE_Model" = 8)%>%
+  gather(., key = "type", value = "albedo", -date,-WY,-doy,-wy_doy,-correct_m)
+
+ggplot(verseghy_long, aes(x=wy_doy))+
+  geom_bar(aes(x = wy_doy, y = correct_m/4), stat = 'unique', fill="dodgerblue3")+
+  geom_line(aes(x=wy_doy, y=albedo, color = type))+
+  scale_color_manual(values = c("black", "cadetblue4", "sienna"))+
+  scale_y_continuous(name = "Broadband Albedo", limits = c(0,1),
+                     sec.axis = sec_axis(~.*4, name = "Depth (m)"))+
+  theme_bw()+
+  facet_wrap(~WY)+
+  theme(legend.position = c(0.75,0.15), legend.title = element_blank())+
+  labs(x="Day of Water Year", y="Albedo", title= "SASP Albedo for Muliple Water Years")
+
+```
+
+Albedo and Hk Values (Verseghy vs Observed)
+```{r}
+
+albedo_comparison <- sasp_alb_depth_05_14_all%>%
+  mutate(delta_hkin =  hkin_obs-hkin_unfilt,
+         delta_hkout =hkout_obs-hkout_unfilt,
+         delta_alb = alb_obs-alb_unfilt,
+         Change_Hkout = ifelse(delta_hkout > 0,
+                                            "Observed_Larger", "Calculated_Larger"),
+         Change_Hkin = ifelse(delta_hkin > 0,
+                                            "Observed_Larger", "Calculated_Larger"))
+
+ggplot(albedo_comparison, aes(x=delta_alb, y=delta_hkin))+
+  geom_point(aes(color=Change_Hkout))+
+  scale_color_manual(values = c("deepskyblue","deeppink4"))+
+  theme_bw()+
+  theme(legend.position = c(0.6,0.8))+
+  labs(y=expression(Delta*"HKin"), x= expression(Delta*"Albedo"))
+
+ggplot(albedo_comparison%>%filter(delta_alb >0.1), aes(x=delta_alb, y=delta_hkin))+
+  geom_point(aes(color=delta_hkout))+
+  theme_bw()+
+  theme(legend.position = c(0.85,0.8))+
+  labs(y=expression(Delta*"HKin"), x= expression(Delta*"Albedo"))+
+  scale_colour_gradient2()
+
+ggplot(albedo_comparison, aes(x=delta_alb, y=delta_hkout))+
+  geom_point(aes(color=Change_Hkin))+
+  scale_color_manual(values = c("deepskyblue","deeppink4"))+
+  theme_bw()+
+  theme(legend.position = c(0.75,0.85))+
+  labs(y=expression(Delta*"HKout"), x= expression(Delta*"Albedo"))
+
+ggplot(albedo_comparison%>%filter(delta_alb >0.1), aes(x=delta_alb, y=delta_hkout))+
+  geom_point(aes(color=delta_hkin))+
+  theme_bw()+
+  theme(legend.position = c(0.9,0.83))+
+  labs(y=expression(Delta*"HKout"), x= expression(Delta*"Albedo"))+ 
+  scale_colour_gradient(low = "black", high = "white")
+
+ggplot(albedo_comparison, aes(x=alb_obs, y=hkin_obs))+
+  geom_point(aes(color=delta_hkin))+
+  theme_bw()+
+  theme(legend.position = c(0.7,0.7))+
+  labs(y="Hkin Observed", x= "Albedo")+ 
+  scale_colour_gradient2()
+
+ggplot(albedo_comparison, aes(x=delta_alb, y=hkout_obs))+
+  geom_point(aes(color=delta_hkout))+
+  theme_bw()+
+  labs(y="Hkout Observed", x= expression(Delta*"Albedo"))+ 
+  scale_colour_gradient2()
+
+
+```
+
+Cleaned Dataset to Save
+```{r}
+dataset_merge <- albedo_comparison%>%
+  merge(., sasp_noon, by = "date", all = TRUE)%>%
+  select(1:9,19:20)%>%
+  rename("hkout_obs"=10, "hkin_obs"=11)%>%
+  mutate(alb_obs = hkout_obs/hkin_obs)%>%
+  mutate(correct_m = ifelse(alb_obs <0.2, 0, correct_m))%>%
+  merge(., average_temp, by ='date')%>%
+  mutate(alb_final = ifelse(correct_m == 0, alb_obs, alb_unfilt))%>%
+  mutate(depth_diff = correct_m - lag(correct_m))
+
+doy = dataset_merge$doy
+for(i in 1:nrow(dataset_merge)){
+  if(is.na(doy[i])){
+    doy[i] = (doy[i-1]+1)
+  }
+}
+dataset_merge$doy <- doy
+
+wy = dataset_merge$WY
+for(i in 1:nrow(dataset_merge)){
+  if(is.na(wy[i])){
+    wy[i] = (wy[i-1])
+  }
+}
+dataset_merge$WY <- wy
+
+final_dataset_05_14 <- dataset_merge%>%
+  mutate(DOWY = ifelse(doy > 273, doy-273, doy+92),
+         DOWY = ifelse(WY == "WY2009", ifelse(doy > 274, doy-274, doy+92), DOWY),
+         DOWY = ifelse(WY == "WY2013", ifelse(doy > 274, doy-274, doy+92), DOWY))%>%
+  mutate(SY = ifelse(date >= "2004-09-01" & date < "2005-09-01", "SY2005",
+              ifelse(date >= "2005-09-01" & date < "2006-09-01", "SY2006",
+              ifelse(date >= "2006-09-01" & date < "2007-09-01", "SY2007",
+              ifelse(date >= "2007-09-01" & date < "2008-09-01", "SY2008",
+              ifelse(date >= "2008-09-01" & date < "2009-09-01", "SY2009",
+              ifelse(date >= "2009-09-01" & date < "2010-09-01", "SY2010",
+              ifelse(date >= "2010-09-01" & date < "2011-09-01", "SY2011",
+              ifelse(date >= "2011-09-01" & date < "2012-09-01", "SY2012",                                        ifelse(date >= "2012-09-01" & date < "2013-09-01", "SY2013",
+              ifelse(date >= "2013-09-01" & date < "2014-09-01", "SY2014",NA)))))))))))%>%
+  mutate(DOSY = ifelse(doy > 243, doy-243, doy+122),
+         DOSY = ifelse(SY == "SY2009", ifelse(doy > 244, doy-244, doy+122), DOSY),
+         DOSY = ifelse(SY == "SY2013", ifelse(doy > 244, doy-244, doy+122), DOSY))%>%
+  rename("DOY" = 3, "hkin_corr" = 4, "hkout_corr" = 5, "alb_corr" = 6)%>%
+  select(1,3,2,15,16,17,14, 8, 9, 13, 4:6,11,10,12)%>%
+  mutate(hkin_comb = ifelse(is.na(hkin_corr), hkin_obs, hkin_corr),
+         hkout_comb = ifelse(is.na(hkout_corr), hkout_obs, hkout_corr))%>%
+  mutate(alb_diff = alb_final - lag(alb_final))%>%
+  filter(!is.na(alb_final))%>%
+  filter(alb_final < 0.96)%>%
+  filter(!is.na(SY))
+
+```
+
+
+```{r}
+ggplot(final_dataset_05_14, aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = correct_m/4), stat = 'unique', fill="dodgerblue3")+
+  geom_line(aes(y=alb_final))+
+  facet_wrap(~SY, nrow = 5)+
+  theme_bw()+
+  scale_y_continuous(name = "Broadband Albedo",
+                     sec.axis = sec_axis(~.*4, name = "Depth (m)"))+
+  labs(x= "Day of Snow Year")
+
+ggplot(final_dataset_05_14%>%filter(SY=="SY2014"), aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = correct_m/4), stat = 'unique', fill="dodgerblue3")+
+  geom_point(aes(y=alb_final))+
+  theme_bw()+
+  scale_y_continuous(name = "Broadband Albedo",
+                     sec.axis = sec_axis(~.*4, name = "Depth (m)"))+
+  labs(x= "Day of Snow Year")
+
+ggplot(final_dataset_05_14, aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = correct_m*300), stat = 'unique', fill="dodgerblue3")+
+  geom_point(aes(y=hkin_comb), color = "orange")+
+  geom_point(aes(y=hkout_comb), color = "gray27")+
+  facet_wrap(~SY, nrow = 5)+
+  theme_bw()+
+  scale_y_continuous(name = "Shortwave Radiation",
+                     sec.axis = sec_axis(~./300, name = "Depth (m)"))+
+  labs(x= "Day of Snow Year", title = "SASP Automated Sensor Corrected Radiaiton and Snow Depth",
+       subtitle = "Orange = Incoming Radiation, Dark Gray = Outgoing Radiation")
+
+```
+
+
+```{r}
+
+max_depth <- final_dataset_05_14%>%
+  group_by(SY)%>%
+  summarise(depth_m = max(correct_m))
+
+dy_final <- final_dataset_05_14%>%
+  select(1,7,8)%>%
+  xts(., order.by = .$date)
+
+dygraph(dy_final)%>%
+  dySeries("alb_final", color = "orange")%>%
+  dySeries("correct_m", stepPlot = TRUE, fillGraph = F, color = "black")
+
+
+```
+
+Split Into Albedo Sections
+
+```{r}
+ggplot(final_dataset_05_14%>%filter(alb_final <0.2), aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = correct_m*300), stat = 'unique', fill="dodgerblue3")+
+  geom_point(aes(y=hkin_comb), color = "orange")+
+  geom_point(aes(y=hkout_comb), color = "gray27")+
+  facet_wrap(~SY, nrow = 5)+
+  theme_bw()+
+  scale_y_continuous(name = "Shortwave Radiation",
+                     sec.axis = sec_axis(~./300, name = "Depth (m)"))+
+  labs(x= "Day of Snow Year", title = "SASP Automated Sensor Corrected Radiaiton and Snow Depth, Albedo <0.2",
+       subtitle = "Orange = Incoming Radiation, Dark Gray = Outgoing Radiation")
+
+ggplot(final_dataset_05_14%>%filter(alb_final >0.2 & alb_final <0.6), aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = correct_m*300), stat = 'unique', fill="dodgerblue3")+
+  geom_point(aes(y=hkin_comb), color = "orange")+
+  geom_point(aes(y=hkout_comb), color = "gray27")+
+  facet_wrap(~SY, nrow = 5)+
+  theme_bw()+
+  scale_y_continuous(name = "Shortwave Radiation",
+                     sec.axis = sec_axis(~./300, name = "Depth (m)"))+
+  labs(x= "Day of Snow Year", title = "SASP Automated Sensor Corrected Radiaiton and Snow Depth, Albedo >0.2 and <0.6",
+       subtitle = "Orange = Incoming Radiation, Dark Gray = Outgoing Radiation")
+
+ggplot(final_dataset_05_14%>%filter(alb_final >0.6 & alb_final <0.75), aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = correct_m*300), stat = 'unique', fill="dodgerblue3")+
+  geom_point(aes(y=hkin_comb), color = "orange")+
+  geom_point(aes(y=hkout_comb), color = "gray27")+
+  facet_wrap(~SY, nrow = 5)+
+  theme_bw()+
+  scale_y_continuous(name = "Shortwave Radiation",
+                     sec.axis = sec_axis(~./300, name = "Depth (m)"))+
+  labs(x= "Day of Snow Year", title = "SASP Automated Sensor Corrected Radiaiton and Snow Depth, Albedo >0.6 and <0.75",
+       subtitle = "Orange = Incoming Radiation, Dark Gray = Outgoing Radiation")
+
+
+```
+
+Difference in Depth
+```{r}
+ggplot(final_dataset_05_14, aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = depth_diff*2000), stat = 'unique', fill="dodgerblue3")+
+  geom_point(aes(y=hkin_comb), color = "orange", size=0.5)+
+  geom_point(aes(y=hkout_comb), color = "gray27", size= 0.5)+
+  facet_wrap(~SY, nrow = 5)+
+  theme_bw()+
+  scale_y_continuous(name = "Shortwave Radiation",
+                     sec.axis = sec_axis(~./2000, name = "Change in Depth (m)"))+
+  labs(x= "Day of Snow Year", title = "SASP Automated Sensor Corrected Radiaiton and Snow Depth",
+       subtitle = "Orange = Incoming Radiation, Dark Gray = Outgoing Radiation")
+
+ggplot(final_dataset_05_14, aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = depth_diff*2), stat = 'unique', fill="dodgerblue3")+
+  geom_line(aes(y=alb_final))+
+  facet_wrap(~SY, nrow = 5)+
+  theme_bw()+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~./2, name = "Change in Depth (m)"))+
+  labs(x= "Day of Snow Year", title = "SASP Automated Sensor Corrected Albedo and Change in Snow Depth")
+```
+
+
+```{r}
+
+change_alb_change_dep_func <- function(filter){
+p1 <- ggplot(final_dataset_05_14%>%filter(SY == filter), aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = depth_diff), stat = 'unique', fill="steelblue2")+
+  geom_line(aes(y=alb_diff))+
+  theme_bw()+
+  scale_y_continuous(name = "Change in Albedo",
+                     sec.axis = sec_axis(~./1, name = "Change in Depth (m)"))+
+  labs(x= "Day of Snow Year", title = filter)
+
+return(p1)
+}
+
+change_alb_change_dep_func(filter = "SY2009")
+change_alb_change_dep_func(filter = "SY2006")
+
+
+```
+
+```{r}
+
+alb_change_dep_func <- function(filter){
+p1 <- ggplot(final_dataset_05_14%>%filter(SY == filter), aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = depth_diff*2), stat = 'unique', fill="dodgerblue3")+
+  geom_line(aes(y=alb_final))+
+  theme_bw()+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~./2, name = "Change in Depth (m)"))+
+  labs(x= "Day of Snow Year", title = filter)
+  
+return(p1)
+}
+
+alb_change_dep_func(filter = "SY2005")
+alb_change_dep_func(filter = "SY2009")
+
+```
+
+
+```{r}
+change_alb_dep_func <- function(filter){
+p1 <- ggplot(final_dataset_05_14%>%filter(SY == filter), aes(x=DOSY))+
+  geom_bar(aes(x = DOSY, y = correct_m/6), stat = 'unique', fill="dodgerblue3")+
+  geom_line(aes(y=alb_diff))+
+  theme_bw()+
+  scale_y_continuous(name = "Change in Albedo",
+                     sec.axis = sec_axis(~.*6, name = "Depth (m)"))+
+  labs(x= "Day of Snow Year", title = filter)
+  
+return(p1)
+}
+
+change_alb_dep_func(filter = "SY2007")
+
+```
+
+
 
