@@ -427,6 +427,8 @@ sasp_alb_depth_05_14_all <- sasp_alb_depth_05_14%>%
   merge(., average_temp, by='date')%>%
   merge(., wind_sasp, by ="date")%>%
   mutate(alb_obs = hkout_obs/hkin_obs)
+
+#save(sasp_alb_depth_05_14_all, file = "data/sasp_alb_depth_05_14_all.Rdata")
 ```
 
 ### Verseghy Intro 

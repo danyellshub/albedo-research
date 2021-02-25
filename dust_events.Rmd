@@ -49,12 +49,11 @@ dust_06_14 <- map_dfr(dust_files, dust_read_in)
 
 events_yearly <- dust_06_14%>%
   filter(!is.na(dust_event))%>%
-  group_by(WY)
-  summarise(count = max(dust_event))
+  mutate(DE_1 = ifelse(dust_event >0,1,NA))
   
 ggplot(events_yearly, aes(x=date))+
-  geom_point(aes(y=dust_event))+
-  facet_wrap(~WY, scales = "free_x")+
+  geom_col(aes(y=DE_1), width = 1)+
+  facet_wrap(~WY, scales="free_x")+
   theme_bw()
 
 ```
@@ -152,7 +151,7 @@ ggplot(sasp_alb_dust_filter, aes(x=depth_diff, y=alb_diff))+
 ggplot(sasp_alb_dust_filter, aes(x=correct_m, y=alb_diff))+
   geom_hline(yintercept = 0)+
   geom_vline(xintercept = 0)+
-  geom_point(aes(color = DOSY))+
+  geom_point(aes(color = alb_final))+
   facet_wrap(~SY, nrow = 5)+
   theme_bw()+
   labs(x="Depth (m)", y=expression(Delta*"Broadband Albedo"), title = "SASP Depth vs. Albedo with Actual Depth (m)")
@@ -165,9 +164,15 @@ ggplot(sasp_alb_dust_filter, aes(x=correct_m, y=alb_diff))+
 ```{r}
 peak_depth <- sasp_alb_dust_filter %>%
   group_by(SY)%>%
-  mutate(max_depth = max(correct_m))%>%
+  mutate(max_depth = max(correct_m),
+         SAG = ifelse(lag(correct_m) >0 & correct_m == 0, 1,0))%>%
   ungroup()%>%
-  mutate(max_no_depth = ifelse(max_depth == correct_m, 700,0))
+  mutate(max_no_depth = ifelse(max_depth == correct_m, 1,0),
+         max_no_depth = ifelse(SY == "SY2006" & 
+                              lag(max_no_depth) == 1, 1, max_no_depth),
+         max_no_depth = ifelse(SY == "SY2010" & 
+                              lag(max_no_depth) == 1, 1, max_no_depth),
+         SAG = ifelse(DOSY <100, 0, SAG))
 
 ```
 
@@ -206,8 +211,9 @@ visible_sasp <- sasp_05_14_skiles%>%
   select(1,17:19)%>%
   merge(., hk_absorbed, all = TRUE)%>%
   filter(!is.na(SY))%>%
+  mutate(SAG = ifelse(is.na(SAG), 0, SAG))%>%
   filter(alb_vis < 1)%>%
-  select(1, 5:28, 2:4)%>%
+  select(1, 5:29, 2:4)%>%
   mutate(hkin_filt = hkin_comb - hvis_in,
          hkout_filt = hkout_comb - hvis_out,
          alb_filt = hkout_filt/hkin_filt)
@@ -218,29 +224,29 @@ visible_sasp <- sasp_05_14_skiles%>%
 ```{r}
 alb_long<- visible_sasp%>%
   filter(DOSY<300)%>%
-  select(1,5:7, 28,8,22,24)%>%
+  select(1,5:7, 29,8,22,25,24)%>%
   rename("Depth_meters" = correct_m,
          "Broadband" = alb_final,
          "Visible" = alb_vis)%>%
   mutate(dust_event = dust_event*0.5,
          max_no_depth = max_no_depth*0.5)%>%
   gather(key = "type", value = "albedo", 
-         -date, -Depth_meters, -max_no_depth,-dust_event,-SY,-DOSY)
+         -date, -Depth_meters, -max_no_depth,-dust_event,-SY,-DOSY,-SAG)
 
 alb_long_nir_swir <- visible_sasp%>%
   filter(DOSY<300)%>%
-  select(1,5:6, 31, 28,8,22,24)%>%
+  select(1,5:6, 32, 29,8,22,24,25)%>%
   rename("Depth_meters" = correct_m,
          "NIR_SWIR" = alb_filt,
          "Visible" = alb_vis)%>%
   mutate(dust_event = dust_event*0.5,
          max_no_depth = max_no_depth*0.5)%>%
   gather(key = "type", value = "albedo", 
-         -date, -Depth_meters, -max_no_depth,-dust_event,-SY,-DOSY)
+         -date, -Depth_meters, -max_no_depth,-dust_event,-SY,-DOSY,-SAG)
 
 alb_long_all <- visible_sasp%>%
   filter(DOSY<300)%>%
-  select(1,5:7, 31, 28,8,22,24)%>%
+  select(1,5:7, 32, 29,8,22,24,25)%>%
   rename("Depth_meters" = correct_m,
          "NIR_SWIR" = alb_filt,
          "Visible" = alb_vis,
@@ -248,11 +254,11 @@ alb_long_all <- visible_sasp%>%
   mutate(dust_event = dust_event*0.35,
          max_no_depth = max_no_depth*0.35)%>%
   gather(key = "type", value = "albedo", 
-         -date, -Depth_meters, -max_no_depth,-dust_event,-SY,-DOSY)
+         -date, -Depth_meters, -max_no_depth,-dust_event,-SY,-DOSY, -SAG)
 
 alb_long_pos_all <- visible_sasp%>%
   filter(DOSY<300)%>%
-  select(1,5:7, 31, 28,8,9, 22,24)%>%
+  select(1,5:7, 32, 29,8,9, 22,24,25)%>%
   rename("Depth_meters" = correct_m,
          "NIR_SWIR" = alb_filt,
          "Visible" = alb_vis,
@@ -263,20 +269,32 @@ alb_long_pos_all <- visible_sasp%>%
          depth_diff = depth_diff*(1/3))%>%
   gather(key = "type", value = "albedo", 
          -date, -Depth_meters, -max_no_depth,-dust_event,
-         -SY,-DOSY, -depth_diff, -depth_positive)
+         -SY,-DOSY, -depth_diff, -depth_positive, -SAG)
   
 ```
 
 Visible vs Broadband Graphing
 ```{r}
-ggplot(alb_long, aes(x=DOSY))+
+ggplot(alb_long_pos_all, aes(x=DOSY))+
   geom_col(aes(y=dust_event), color = "salmon3", width = 0.25)+
-  geom_col(aes(y=max_no_depth), width = 1)+
-  geom_line(aes(y=albedo, color = type))+
+  geom_col(aes(y=max_no_depth), width = 2, color = "darkslateblue")+
+  geom_col(aes(y=SAG/3), width =2, color = "darkgreen")+
+  geom_line(aes(y=albedo, color = type, linetype = type))+
   facet_wrap(~SY, nrow=5)+
-  scale_color_manual(values=c("grey22","cyan3"))+
+  scale_color_manual(values=c("grey22","maroon4","cyan3"))+
   theme_bw()+
   labs(x="Day of Snow Year", y= "Albedo", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Black Line = Peak Snow Depth")+
+  theme(legend.title = element_blank())
+
+ggplot(alb_long_pos_all%>%filter(DOSY>175), aes(x=DOSY))+
+  geom_col(aes(y=dust_event), color = "salmon3", width = 0.25)+
+  geom_col(aes(y=max_no_depth), width = 1, fill = "darkslateblue")+
+  geom_col(aes(y=SAG/3), width =1, fill = "darkgreen")+
+  geom_line(aes(y=albedo, color = type, linetype = type))+
+  facet_wrap(~SY, nrow=5)+
+  scale_color_manual(values=c("grey22","maroon4","cyan3"))+
+  theme_bw()+
+  labs(x="Day of Snow Year", y= "Albedo", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Purple Line = Peak Snow Depth, Green Line = SAG")+
   theme(legend.title = element_blank())
 
 ggplot(alb_long%>%filter(DOSY>175), aes(x=DOSY))+
@@ -298,29 +316,59 @@ ggplot(alb_long%>%filter(DOSY>175), aes(x=DOSY))+
 Visible vs NIR/SWIR Plot
 ```{r}
 ggplot(alb_long_nir_swir%>%filter(DOSY>175), aes(x=DOSY))+
-  geom_col(aes(y=dust_event), color = "salmon3", width = 0.25)+
-  geom_col(aes(y=max_no_depth), width = 1)+
+  geom_col(aes(y=dust_event/4), color = "salmon3", width = 0.25)+
+  geom_col(aes(y=max_no_depth), width = 1, fill = "darkslateblue")+
   geom_line(aes(y=albedo, color = type))+
+  geom_col(aes(y=SAG/2), width =1, fill = "darkgreen")+
   facet_wrap(~SY, nrow=5)+
   scale_color_manual(values=c("plum4","cyan3"))+
   theme_bw()+
-  labs(x="Day of Snow Year", y= "Albedo", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Black Line = Peak Snow Depth")+
+  labs(x="Day of Snow Year", y= "Albedo", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Purple Line = Peak Snow Depth, Green Line = SAG")+
   theme(legend.title = element_blank())
 
 ```
 
 All Albedos
 ```{r}
-ggplot(alb_long_all%>%filter(DOSY>175), aes(x=DOSY))+
-  geom_col(aes(y=dust_event), color = "salmon3", width = 0.25)+
-  geom_col(aes(y=max_no_depth), width = 1)+
-  geom_line(aes(y=albedo, color = type))+
-  facet_wrap(~SY, nrow=5)+
+ggplot(alb_long_all%>%filter(DOSY>175), aes(x=date))+
+  geom_col(aes(y=dust_event/4), color = "salmon3", width = 0.25)+
+  geom_col(aes(y=max_no_depth), width = 1, fill = "darkslateblue")+
+  geom_col(aes(y=SAG/3), width =1, fill = "darkgreen")+
+  geom_line(aes(y=albedo, color = type, linetype = type))+
+  facet_wrap(~SY, nrow=5, scales = "free_x")+
   scale_color_manual(values=c("grey22","plum4", "cyan3"))+
   theme_bw()+
-  labs(x="Day of Snow Year", y= "Albedo", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Black Line = Peak Snow Depth")+
+  labs(x="", y= "Albedo", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Purple = Peak Snow Depth, Green = SAG")+
   theme(legend.title = element_blank())
 
+alb_long_all_2 <- alb_long_all%>%
+  group_by(type)%>%
+  mutate(depth_diff = Depth_meters-lag(Depth_meters),
+         depth_diff_pos = ifelse(depth_diff >0,depth_diff,0))%>%
+  ungroup()
+
+ggplot(alb_long_all_2%>%filter(DOSY>175), aes(x=date))+
+  geom_col(aes(y=dust_event/4), color = "salmon3", width = 0.25)+
+  geom_col(aes(y=max_no_depth), width = 1, fill = "darkslateblue")+
+  geom_col(aes(y=depth_diff_pos/3), width = 1, fill = "steelblue4")+
+  geom_col(aes(y=SAG/3), width =1, fill = "darkgreen")+
+  geom_line(aes(y=albedo, color = type, linetype = type))+
+  facet_wrap(~SY, nrow=5, scales = "free_x")+
+  scale_color_manual(values=c("grey22","plum4", "cyan3"))+
+  theme_bw()+
+  labs(x="", y= "Albedo", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Purple = Peak Snow Depth, Green = SAG")+
+  theme(legend.title = element_blank())
+
+ggplot(alb_long_all_2%>%filter(DOSY>175), aes(x=date))+
+  geom_col(aes(y=dust_event/4), color = "salmon3", width = 0.25)+
+  geom_col(aes(y=depth_diff_pos/3), width = 1, fill = "steelblue4")+
+  geom_col(aes(y=SAG/3), width =1, fill = "darkgreen")+
+  geom_line(aes(y=albedo, color = type, linetype = type))+
+  facet_wrap(~SY, nrow=5, scales = "free_x")+
+  scale_color_manual(values=c("grey22","plum4", "cyan3"))+
+  theme_bw()+
+  labs(x="", y= "Albedo", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Purple = Peak Snow Depth, Green = SAG")+
+  theme(legend.title = element_blank())
 
 ggplot(alb_long_all%>%filter(DOSY>175), aes(x=DOSY))+
   geom_bar(aes(y=Depth_meters/4), stat = 'unique', fill = "steelblue2", width = 0.5)+
@@ -334,23 +382,25 @@ ggplot(alb_long_all%>%filter(DOSY>175), aes(x=DOSY))+
   theme(legend.title = element_blank())+
   scale_y_continuous(name = "Albedo",
                      sec.axis = sec_axis(~.*4, name = "Depth (m)"))
+
+
 ```
 
 More Albedo graphs
 ```{r}
 
-ggplot(alb_long_pos_all%>%filter(DOSY>175), aes(x=DOSY))+
-  geom_col(aes(y=dust_event), color = "salmon3", width = 0.25)+
-  geom_col(aes(y=max_no_depth), width = 1)+
-  geom_line(aes(y=1.25-depth_positive*4), color = "steelblue2", size = 1)+
-  geom_line(aes(y=albedo, color = type))+
-  facet_wrap(~SY, nrow=5)+
-  scale_color_manual(values=c("grey22","plum4", "cyan3"))+
-  theme_bw()+
-  labs(x="Day of Snow Year", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Black Line = Peak Snow Depth")+
-  theme(legend.title = element_blank())+
-  scale_y_continuous(name = "Albedo",
-                     sec.axis = sec_axis(~(1.25-.)/4, name = expression(Delta*"Depth (m)")))
+# ggplot(alb_long_pos_all%>%filter(DOSY>175), aes(x=DOSY))+
+#   geom_col(aes(y=dust_event), color = "salmon3", width = 0.25)+
+#   geom_col(aes(y=max_no_depth), width = 1)+
+#   geom_line(aes(y=1.25-depth_positive*4), color = "steelblue2", size = 1)+
+#   geom_line(aes(y=albedo, color = type))+
+#   facet_wrap(~SY, nrow=5)+
+#   scale_color_manual(values=c("grey22","plum4", "cyan3"))+
+#   theme_bw()+
+#   labs(x="Day of Snow Year", title = "SASP Albedo and Dust Events", subtitle = "Brown Lines = Dust Event, Black Line = Peak Snow Depth")+
+#   theme(legend.title = element_blank())+
+#   scale_y_continuous(name = "Albedo",
+#                      sec.axis = sec_axis(~(1.25-.)/4, name = expression(Delta*"Depth (m)")))
 
 
 ggplot(alb_long_pos_all%>%filter(DOSY>175), aes(x=DOSY))+
@@ -462,21 +512,24 @@ filtered_dust_graphing <- filtered_dust_all%>%
   mutate(seq = NA)
 filtered_dust_graphing$seq <- with(filtered_dust_graphing, ave(SY, SY, FUN = seq_along))
 filtered_dust_graphing <- filtered_dust_graphing%>%
-  mutate(seq = as.numeric(as.character(seq)))%>%ss
+  mutate(seq = as.numeric(as.character(seq)))%>%
   mutate(group = ifelse(event != lag(event), 1,0))
 
 ```
 
 
 ```{r}
+
 ggplot(filtered_dust_graphing, aes(x=seq, group = event))+
-  geom_line(aes(y=alb_vis), color = "goldenrod")+
-  geom_line(aes(y=alb_final), color = "grey22")+
-  geom_col(aes(y=dust_event), fill = "salmon3", width = 0.2)+
   geom_col(aes(y=correct_m/4), fill = "steelblue2", width = 0.5)+
+  geom_col(aes(y=dust_event), fill = "salmon3", width = 0.2)+
+  geom_line(aes(y=alb_vis), color = "goldenrod")+
+  geom_point(aes(y=alb_vis), color = "goldenrod", size = 0.5)+
+  geom_line(aes(y=alb_filt), color = "plum4")+
+  geom_point(aes(y=alb_filt), color = "plum4", size = 0.5)+
   facet_wrap(~SY, scales = "free_x")+
   theme_bw()+
-  labs(x="", title = "SASP Albedo and Dust", subtitle = "Golden = Visible Albedo, Black = Broadband, Brown Lines = Dust Events" )+
+  labs(x="", title = "SASP Albedo and Dust", subtitle = "Golden = Visible Albedo, Plum = NIR & SWIR, Brown Lines = Dust Events" )+
   theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())+
   scale_y_continuous(name = "Albedo",
                      sec.axis = sec_axis(~.*4, name = "Depth (m)"))
@@ -499,7 +552,9 @@ visible_sasp_zenith <- visible_sasp%>%
          max_hkabs_alb = max_hkin*(1-alb_final))
 
 ggplot(visible_sasp_zenith, aes(x=Et, y=zen_deg))+
-  geom_point(aes(color = DOSY))
+  geom_point(aes(color = DOY))+
+  theme_minimal()+
+  labs(x="Change in Time from Solar Noon",y= "Zenith Angle °")
 
 ```
 
@@ -540,7 +595,7 @@ ggplot(visible_sasp_zenith %>% filter(correct_m >0), aes(x=DOSY))+
   facet_wrap(~SY, nrow=5, scales = "free_x")+
   theme_bw()
 
-ggplot(visible_sasp_zenith %>% filter(correct_m >0), aes(x=DOSY))+
+ggplot(visible_sasp_zenith , aes(x=DOSY))+
   geom_line(aes(y=max_hkabs_alb), size = 0.5, color = "cyan")+
   geom_line(aes(y=hk_absorbed), size = 0.5, color = "black")+
   scale_y_continuous(name = "Abosrbed Shortwave Radiation (W/m2)")+
@@ -556,7 +611,7 @@ visible_sasp_early <- visible_sasp_zenith%>%
   filter(correct_m < 0.7)%>%
   filter(DOSY < 125)
 
-ggplot(visible_sasp_early, aes(x=DOSY))+
+ggplot(visible_sasp_early%>%filter(DOSY>25), aes(x=DOSY))+
   geom_line(aes(y=alb_final))+
   geom_col(aes(y=correct_m), fill = "steelblue2", width = 0.5)+
   facet_wrap(~SY, scales = "free_x")+
@@ -569,9 +624,8 @@ ggplot(visible_sasp_early, aes(x=DOSY))+
 ### Last 70 cm
 
 ```{r}
-
 visible_sasp_late <- visible_sasp_zenith%>%
-  filter(correct_m < 1)%>%
+  filter(correct_m < 0.9)%>%
   filter(DOSY > 150)%>%
   mutate(final_days = ifelse(lag(correct_m) >0, "keep", "delete"),
          final_days = ifelse(lag(final_days) == "keep", "keep", "delete"))%>%
@@ -581,14 +635,17 @@ visible_sasp_late <- visible_sasp_zenith%>%
 ggplot(visible_sasp_late, aes(x=DOSY))+
   geom_col(aes(y=correct_m/1), fill = "steelblue2", width = 0.5)+
   geom_line(aes(y=alb_final))+
-  geom_col(aes(y=depth_diff_pos), fill = "black", width = 0.5)+
   facet_wrap(~SY, scales = "free_x", nrow = 5)+
   scale_y_continuous(name = "Albedo",
                      sec.axis = sec_axis(~.*1, name = "Depth (m)"))+
   
   theme_bw()
 
-names(visible_sasp)
+```
+Add on new depth via precip levels not depth?
+
+```{r}
+save(visible_sasp_zenith, file= "data/visible_sasp_zenith.Rdata")
 
 ```
 

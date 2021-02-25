@@ -3,6 +3,8 @@ title: "Model Comparison"
 author: "Danielle Reimanis"
 date: "2/16/2021"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -22,5 +24,279 @@ library(xts)
 library(dygraphs)
 
 
+```
+
+
+### Loading
+```{r}
+load(file = "data/visible_sasp_zenith.Rdata")
+load(file = "data/sasp.Rdata")
+load(file = "data/red_mtn_pass_09_12.Rdata")
+load(file = "data/sasp_alb_depth_05_14_all.Rdata")
+
+hist(visible_sasp_zenith$alb_final)
+
+sasp_parameters <- sasp%>%
+  filter(Hour == 1200,
+         date > "2005-08-31")%>%
+  select(2, 6:9,15,16,17)
+
+big_sasp_frame <- visible_sasp_zenith%>%
+  merge(., sasp_parameters, by = "date")%>%
+  group_by(SY)%>%
+  mutate(sy_h2o = cumsum(Day_H2O_mm))%>%
+  ungroup()%>%
+  mutate(daily_swe_mm_ta = ifelse(LoAir_Max_C < 0, Day_H2O_mm, 0))%>%
+  group_by(SY)%>%
+  mutate(sy_swe_temp = cumsum(daily_swe_mm_ta))%>%
+  ungroup()%>%
+  mutate(change_h2o = Seasn_H2O_mm - lag(Seasn_H2O_mm),
+         change_h2o = ifelse(change_h2o <0, 0, change_h2o))%>%
+  group_by(SY)%>%
+  mutate(sy_seasn_h2o_mm = cumsum(change_h2o))%>%
+  ungroup()
+
 
 ```
+
+## SWE Comparison
+```{r}
+red_mtn_swe <- red_mtn_pass_09_12%>%
+  mutate(date = ymd(Date))%>%
+  rename("SWE_in" = Snow.Water.Equivalent..in..Start.of.Day.Values)%>%
+  mutate(RMP_SWE_mm = SWE_in*25.4)%>%
+  select(9,10)
+
+big_sasp_08_12 <- big_sasp_frame%>%
+  merge(., red_mtn_swe, by = "date")
+
+ggplot(big_sasp_08_12%>%filter(SY!="SY2009"), aes(x=DOSY))+
+  geom_line(aes(y= sy_swe_temp), color = "blue4")+
+  geom_line(aes(y=RMP_SWE_mm), color = "red4")+
+  geom_line(aes(y=sy_h2o), color = "blue2")+
+  geom_line(aes(y=sy_seasn_h2o_mm), color = "lightblue4")+
+  facet_wrap(~SY)+
+  labs(y="SWE_mm", subtitle = "Red = RMP, Teal = SY Season Total, Blues = Daily Totals")+
+  theme_bw()
+
+names(big_sasp_frame)
+    
+```
+
+
+### First Order Decay (USACE and Verseghy) 
+
+Assumed: 
+Max albedo = 0.84
+Non-melt albedo = 0.7
+Melting albedo = 0.5 
+Bare Ground = 0.16
+
+
+For Loop Data Frame:
+```{r}
+vrsg_df <- sasp_alb_depth_05_14_all%>%
+  select(1,3,12,8)%>%
+  mutate(correct_m = ifelse(is.na(correct_m), 0, correct_m))%>%
+  mutate(depth_diff = correct_m-lag(correct_m))%>%
+  mutate(SY = ifelse(date >= "2004-09-01" & date < "2005-09-01", "SY2005",
+              ifelse(date >= "2005-09-01" & date < "2006-09-01", "SY2006",
+              ifelse(date >= "2006-09-01" & date < "2007-09-01", "SY2007",
+              ifelse(date >= "2007-09-01" & date < "2008-09-01", "SY2008",
+              ifelse(date >= "2008-09-01" & date < "2009-09-01", "SY2009",
+              ifelse(date >= "2009-09-01" & date < "2010-09-01", "SY2010",
+              ifelse(date >= "2010-09-01" & date < "2011-09-01", "SY2011",
+              ifelse(date >= "2011-09-01" & date < "2012-09-01", "SY2012",                                     ifelse(date >= "2012-09-01" & date < "2013-09-01", "SY2013",
+              ifelse(date >= "2013-09-01" & date < "2014-09-01", "SY2014",NA)))))))))))%>%
+  mutate(DOSY = ifelse(doy > 243, doy-243, doy+122),
+         DOSY = ifelse(SY == "SY2009", ifelse(doy > 244, doy-244, doy+122), DOSY),
+         DOSY = ifelse(SY == "SY2013", ifelse(doy > 244, doy-244, doy+122), DOSY))%>%
+  filter(!is.na(SY))
+  
+  
+```
+
+OG Tests
+
+```{r}
+# verseghy_test_2007 <- vrsg_df%>%
+#   filter(SY == "SY2007")%>%
+#   filter(!is.na(depth_diff))%>%
+#   mutate(bare_albedo = 0.16,
+#          depth_diff_pos = ifelse(depth_diff >0, depth_diff, 0),
+#          cume_snow = cumsum(depth_diff_pos),
+#          albedo_min = ifelse(avg_temp_c < 0 & depth_diff_pos == 0, 0.7,
+#                              ifelse(avg_temp_c >= 0, 0.5, NA)),
+#          albedo_min = ifelse(avg_temp_c > 0 & cume_snow == lag(cume_snow),
+#                              0.16, albedo_min))%>%
+#   mutate(vrsg_albedo = ifelse(cume_snow == 0,bare_albedo,NA),
+#          vrsg_albedo = ifelse(depth_diff_pos > 0, 0.84, vrsg_albedo),
+#          vrsg_albedo = ifelse(correct_m == 0, 0.16 , vrsg_albedo))
+# 
+# albedo_07 = verseghy_test_2007$vrsg_albedo
+# alb_min_07 = verseghy_test_2007$albedo_min
+# 
+# for(i in 1:nrow(verseghy_test_2007)){
+#   if(is.na(albedo_07[i])){
+#     albedo_07[i] = ((albedo_07[i-1]-alb_min_07[i])*exp(-0.02)+alb_min_07[i])
+#   }
+# }
+# 
+# verseghy_test_2007$vrsg_albedo <- albedo_07
+# 
+# ggplot(verseghy_test_2007, aes(x=DOSY))+
+#   geom_line(aes(y=vrsg_albedo),color= "sienna")+
+#   ylim(c(0,1))+
+#   theme_bw()+
+#   labs(x="DOSY", y="Broadband Albedo",
+#        title = "SY2008 Albedo Modeled")
+
+```
+
+Function
+
+```{r}
+verseghy_function <- function(sy){
+  df <- vrsg_df%>%
+    filter(SY == sy)%>%
+    filter(!is.na(depth_diff))%>%
+    mutate(bare_albedo = 0.18,
+           depth_diff_pos = ifelse(depth_diff >0, depth_diff, 0),
+           cume_snow = cumsum(depth_diff_pos),
+           albedo_min = ifelse(avg_temp_c < 0 & depth_diff_pos == 0, 0.7, 
+                               ifelse(avg_temp_c >= 0, 0.5, NA)),
+           albedo_min = ifelse(avg_temp_c > 0 & cume_snow == lag(cume_snow), 
+                               0.18, albedo_min))%>%
+    mutate(vrsg_albedo = ifelse(cume_snow == 0,bare_albedo,NA),
+           vrsg_albedo = ifelse(depth_diff_pos > 0, 0.84, vrsg_albedo),
+           vrsg_albedo = ifelse(correct_m == 0, 0.18 , vrsg_albedo))
+  
+  albedo_loop = df$vrsg_albedo
+  alb_min_loop = df$albedo_min
+
+for(i in 1:nrow(df)){
+  if(is.na(albedo_loop[i])){
+    albedo_loop[i] = ((albedo_loop[i-1]-alb_min_loop[i])*exp(-0.02)+alb_min_loop[i])
+  }
+}
+
+df$vrsg_albedo <- albedo_loop
+
+return(df)
+
+}
+
+```
+
+Mapped (& Plotted)
+
+```{r}
+sy_string <- unique(vrsg_df$SY)
+verseghy_map <- map_dfr(sy_string, verseghy_function)
+
+ggplot(verseghy_map%>%filter(SY != "SY2005"), aes(x=DOSY))+
+  geom_line(aes(y = vrsg_albedo))+
+  facet_wrap(~SY)+
+  ylim(c(0,1))+
+  theme_bw()
+
+vrsgy_merge <- verseghy_map%>%
+  select(1,12)%>%
+  rename("vrsg_albedo" = 2)
+
+```
+
+### Observed vs. Vrsgy Modeled
+
+```{r}
+
+merged_vrsg_obs_simp <- big_sasp_frame%>%
+  select(1,2,5,6,7,8,9,16,18,19,20,21:25,36,37)%>%
+  merge(., vrsgy_merge, by = "date")%>% 
+  mutate(vrsg_abs = (1-vrsg_albedo)*hkin_comb)
+
+
+ggplot(merged_vrsg_obs_simp, aes(x=DOSY))+
+  geom_line(aes(y=alb_final), color = "grey44")+
+  geom_line(aes(y=vrsg_albedo), color = "seagreen4")+
+  theme_bw()+
+  facet_wrap(~SY)
+
+ggplot(merged_vrsg_obs_simp, aes(x=DOSY))+
+  geom_col(aes(y=hk_absorbed), color = "grey44")+
+  geom_col(aes(y=vrsg_abs), color = "seagreen4", alpha = 0.05)+
+  theme_bw()+
+  facet_wrap(~SY)
+
+```
+
+### Vrsghy Abs Analysis
+```{r}
+vrsg_model_diff <- merged_vrsg_obs_simp%>%
+  select(1,3,4,5,6,16,19,20)%>%
+  mutate(abs_diff  = vrsg_abs-hk_absorbed,
+         abs_coeff_obs = 1-alb_final,
+         abs_coeff_mod = 1-vrsg_albedo,
+         abs_coeff_diff = abs_coeff_mod - abs_coeff_obs)
+
+vrsg_abs_sum <- vrsg_model_diff%>%
+  group_by(SY)%>%
+  summarise(., sum = sum(abs_diff))%>%
+  mutate(Year = str_sub(SY, 3,6))
+
+```
+
+### Vrsghy Abs Charts
+```{r}
+ggplot(vrsg_abs_sum, aes(x=Year, y=sum))+
+  geom_col()+
+  scale_x_discrete(position = "top")+
+  theme_bw()+
+  labs(x="Snow Year", y= "Sum of Absorption Difference",
+       subtitle = "Versgehy Model to Observed Absorption")
+
+```
+
+
+
+```{r}
+vrsg_model_long_hkabs <- merged_vrsg_obs_simp%>%
+  select(1,3,4,6,16,20)%>%
+  rename("Vrsghy_model" = vrsg_abs,
+         "Observed" = hk_absorbed)%>%
+  gather(., key = "key", value = "hkabsorbed", -date,-SY,-DOSY, -correct_m)
+
+ggplot(vrsg_model_long_hkabs, aes(x=DOSY))+
+  geom_bar(aes(y=hkabsorbed, fill=key), stat ="identity", position = position_dodge())+
+  facet_wrap(~SY)+
+  theme_bw()+
+  scale_fill_manual(values=c('grey44','seagreen'))
+  
+```
+
+More Charts (better)
+```{r}
+ggplot(vrsg_model_diff%>%filter(correct_m>0), aes(x=DOSY))+
+  geom_col(aes(y=correct_m*100), color = "steelblue2")+
+  geom_col(aes(y=abs_diff))+
+  facet_wrap(~SY, scales = "free_x")+
+  theme_bw()+
+  labs(y="Difference in Absorption", 
+       subtitle =  "(First Order Decay - Observed), Blue = depth (cm)")
+
+ggplot(vrsg_model_diff%>%filter(correct_m>0), aes(x=DOSY))+
+  geom_line(aes(y=hk_absorbed), color = "grey44")+
+  geom_line(aes(y=vrsg_abs), color = "seagreen")+
+  facet_wrap(~SY, scales = "free_x")+
+  theme_bw()+
+  labs(y="Aborption", subtitle = "Grey = Observed, Green = Modeled")
+
+ggplot(vrsg_model_diff%>%filter(correct_m>0), aes(x=DOSY, y=abs_diff))+
+  geom_line(aes(y=abs_coeff_obs), color = "grey44")+
+  geom_line(aes(y=abs_coeff_mod), color = "seagreen")+
+  facet_wrap(~SY, scales = "free_x")+
+  theme_bw()+
+  labs(y="Absorption Coefficients", subtitle =  "Grey = Observed, Green = Modeled")
+
+```
+
