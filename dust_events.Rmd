@@ -444,13 +444,6 @@ ggplot(visible_sasp%>%filter(DOSY<300), aes(x=DOSY))+
   labs(x="Day of Snow Year", y= "Visible Light Albedo", title = "SASP Visible Albedo and Dust Events", subtitle = "Red Lines = Dust Event, Black Line = Peak Snow Depth, Blue Gradient = Depth (m)")+
   theme(legend.title = element_blank())
 
-ggplot(visible_sasp, aes(x=DOSY))+
-  geom_col(aes(y=dust_event), color = "salmon3", width = 0.5)+
-  geom_line(aes(y=alb_vis), color = "goldenrod")+
-  geom_line(aes(y=alb_final), color = "purple4")+
-  theme_bw()+
-  facet_wrap(~SY, nrow =5)
-
 ggplot(visible_sasp, aes(x=alb_vis, y=alb_final))+
   geom_point(aes(color = correct_m))+
   theme_bw()+
@@ -523,16 +516,30 @@ filtered_dust_graphing <- filtered_dust_graphing%>%
 ggplot(filtered_dust_graphing, aes(x=seq, group = event))+
   geom_col(aes(y=correct_m/4), fill = "steelblue2", width = 0.5)+
   geom_col(aes(y=dust_event), fill = "salmon3", width = 0.2)+
-  geom_line(aes(y=alb_vis), color = "goldenrod")+
-  geom_point(aes(y=alb_vis), color = "goldenrod", size = 0.5)+
+  geom_line(aes(y=alb_vis), color = "cyan4")+
+  geom_point(aes(y=alb_vis), color = "cyan4", size = 0.5)+
   geom_line(aes(y=alb_filt), color = "plum4")+
   geom_point(aes(y=alb_filt), color = "plum4", size = 0.5)+
   facet_wrap(~SY, scales = "free_x")+
   theme_bw()+
-  labs(x="", title = "SASP Albedo and Dust", subtitle = "Golden = Visible Albedo, Plum = NIR & SWIR, Brown Lines = Dust Events" )+
+  labs(x="", title = "SASP Albedo and Dust", subtitle = "Cyan = Visible Albedo, Plum = NIR & SWIR, Brown Lines = Dust Events" )+
   theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())+
   scale_y_continuous(name = "Albedo",
                      sec.axis = sec_axis(~.*4, name = "Depth (m)"))
+
+ggplot(filtered_dust_graphing, aes(x=seq, group = event))+
+  geom_col(aes(y=depth_diff), fill = "steelblue2", width = 0.5)+
+  geom_col(aes(y=dust_event), fill = "salmon3", width = 0.2)+
+  geom_line(aes(y=alb_vis), color = "cyan4")+
+  geom_point(aes(y=alb_vis), color = "cyan4", size = 0.5)+
+  geom_line(aes(y=alb_filt), color = "plum4")+
+  geom_point(aes(y=alb_filt), color = "plum4", size = 0.5)+
+  facet_wrap(~SY, scales = "free_x")+
+  theme_bw()+
+  labs(x="", title = "SASP Albedo and Dust", subtitle = "Cyan = Visible Albedo, Plum = NIR & SWIR, Brown Lines = Dust Events" )+
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~.*1, name = expression(Delta*"Depth (m)")))
 
 ```
 
@@ -648,4 +655,220 @@ Add on new depth via precip levels not depth?
 save(visible_sasp_zenith, file= "data/visible_sasp_zenith.Rdata")
 
 ```
+
+#SBSP Intro
+```{r}
+load("data/sbsp.Rdata")
+```
+
+### SBSP Radiation
+```{r}
+skiles_rad_depth <- list.files('data/Skiles_SBSP_radiation', full.names = TRUE)
+
+skiles_sbsp_readin <- function(file){
+  data_names = str_sub(file, -8,-5)
+  name = paste("WY", data_names, sep = "")
+  df <- read.table(file, header  = F)%>%
+    select(1:17)%>%
+    rename("year" = 1, "month" = 2, "day" = 3, "hour" = 4, "doy" = 5,
+          "hkin_unfilt" = 6, "hkout_unfilt" = 7, "hkabs_unfilt" = 8, "alb_unfilt" = 9,
+          "hkin_filt" = 10, "hkout_filt" = 11, "hkabs_filt" = 12, "alb_filt" = 13,
+          "hkin_shad" = 14, "hkout_shad" = 15, "hkabs_shad" = 16, "alb_shad" = 17)%>%
+    mutate_if(is.character, as.numeric)%>%
+    mutate(date = paste(month, day, year, sep = " "),
+          date = mdy(date))%>%
+    mutate(WY = name)%>%
+    select(18:19, 4:17)%>%
+    mutate_all(funs(replace(., .<0,NA)))
+  
+  return(df)
+}
+
+sbsp_05_14_skiles <- map_dfr(skiles_rad_depth, skiles_sbsp_readin)%>%
+  mutate(hour0 = paste(hour, "00", sep=""),
+         hour0 = ifelse(nchar(hour0) < 4, paste0("0", hour0), hour0))%>%
+  mutate(datetime = paste(date, hour0, sep = " "),
+         datetime = ymd_hm(datetime, tz = "MST"))
+
+```
+
+
+Quick Radiation Graphs
+```{r}
+sbsp_graph <- sbsp_05_14_skiles%>%
+  filter(hour %in% c(8,9,10,11,12,13,14,15,16,17))
+
+ggplot(sbsp_graph, aes(x=hour))+
+  geom_point(aes(y=alb_unfil))+
+  facet_wrap(~WY, scales = "free_x")+
+  theme_bw()
+
+ggplot(sbsp_graph%>%filter(date == "2005-03-11"), aes(x=hour))+
+  geom_line(aes(y=alb_unfilt))+
+  geom_point(aes(y=alb_unfilt), shape =2)+
+  ylim(c(0.6,1))+
+  xlim(8,17)+
+  theme_bw()
+
+```
+
+
+### SBSP Depth
+
+```{r}
+skiles_depth_sbsp <- list.files('data/Skiles_SBSP_depth', full.names = TRUE)
+
+depth_reader_sbsp <- function(file){
+  data_year = str_sub(file, -18, -15)
+  name = paste("WY", data_year, sep = "")
+  df <- read.table(file, header = F)%>%
+    rename("year" =1, "month" = 2, "day" = 3, 
+           "hour" = 4, "doy" = 5, "depth_m" =6)%>%
+    mutate_if(is.character, as.numeric)%>%
+    mutate(date = paste(month, day, year, sep = " "),
+         date = mdy(date))%>%
+    mutate(WY = name)%>%
+    select(7,8,4,5,6)%>%
+    mutate_all(funs(replace(., .<0,NA)))%>%
+    mutate(depth_m = ifelse(depth_m > 9000, NA, depth_m))
+         
+   return(df)
+}
+
+sbsp_05_14_depth_skiles <- map_dfr(skiles_depth_sbsp, depth_reader_sbsp)%>%
+  mutate(hour0 = paste(hour, "00", sep=""),
+         hour0 = ifelse(nchar(hour0) < 4, paste0("0", hour0), hour0))%>%
+  mutate(datetime = paste(date, hour0, sep = " "),
+         datetime = ymd_hm(datetime, tz = "MST"))%>%
+  select(7,5)
+
+```
+
+### SBSP Combined
+```{r}
+
+load(file = "data/SBSP.Rdata")
+
+dust_df <- dust_06_14%>%
+  select(1,3)%>%
+  mutate(DE = ifelse(dust_event > 0,1,0),
+         DE = ifelse(is.na(DE), 0, DE))
+  
+sbsp_og_depth <- sbsp %>%
+  select(datetime, Sno_Height_M)%>%
+  rename(depth_m_obs = 2)
+
+names(sbsp_obs_merge)
+
+sbsp_obs_merge <- sbsp%>%
+  select(1,6:8,10)%>%
+  mutate(Tavg_C = (LoAir_Min_C+LoAir_Max_C)/2)%>%
+  rename(RH = "Lo_RH", Uavg_MS = "LoWind_Uavg_MS")%>%
+  select(1,4:6)
+  
+sbsp_combined <- merge(sbsp_05_14_depth_skiles, sbsp_05_14_skiles,
+                       by ="datetime", all = T)%>%
+  filter(datetime >	"2005-01-21 11:00:00")%>%
+  rename(depth_m_skiles = "depth_m")%>%
+  merge(., sbsp_og_depth, by = "datetime")%>%
+  mutate(depth_diff = depth_m_obs - depth_m_skiles)%>%
+  select(1,2,20,21,3:18)%>%
+  mutate(depth_m = ifelse(depth_diff >-0.25, depth_m_skiles, depth_m_obs),
+         depth_m = ifelse(WY == "WY2005", depth_m_obs, depth_m))%>%
+  filter(!is.na(WY))%>%
+  mutate(SY = ifelse(date >= "2004-09-01" & date < "2005-09-01", "SY2005",
+              ifelse(date >= "2005-09-01" & date < "2006-09-01", "SY2006",
+              ifelse(date >= "2006-09-01" & date < "2007-09-01", "SY2007",
+              ifelse(date >= "2007-09-01" & date < "2008-09-01", "SY2008",
+              ifelse(date >= "2008-09-01" & date < "2009-09-01", "SY2009",
+              ifelse(date >= "2009-09-01" & date < "2010-09-01", "SY2010",
+              ifelse(date >= "2010-09-01" & date < "2011-09-01", "SY2011",
+              ifelse(date >= "2011-09-01" & date < "2012-09-01", "SY2012",                                     ifelse(date >= "2012-09-01" & date < "2013-09-01", "SY2013",
+              ifelse(date >= "2013-09-01" & date < "2014-09-01", "SY2014",NA)))))))))))%>%
+  mutate(DOSY = ifelse(doy > 243, doy-243, doy+122),
+         DOSY = ifelse(SY == "SY2009", ifelse(doy > 244, doy-244, doy+122), DOSY),
+         DOSY = ifelse(SY == "SY2013", ifelse(doy > 244, doy-244, doy+122), DOSY))%>%
+  select(1,5,8,7,6,22,23,9:16,21)%>%
+  rename(DOY = "doy")%>%
+  merge(., dust_df, by ="date", all=T)%>%
+  merge(., sbsp_obs_merge, by = "datetime", all = T)%>%
+  filter(!is.na(SY))
+
+ggplot(sbsp_combined, aes(x=datetime, y=depth_m))+
+  geom_point()+
+  facet_wrap(~SY, scales = "free")+
+  theme_bw()
+
+save(sbsp_combined, file = "data/SBSP_combined.Rdata")
+  
+```
+
+### SASP Copy
+```{r}
+
+load(file = "data/SASP.Rdata")
+load(file = "data/sasp_05_14_skiles.Rdata")
+load(file = "data/sasp_05_14_depth_skiles.Rdata")
+
+sasp_skiles_rad <- sasp_05_14_skiles%>%
+  mutate(hour0 = paste(hour, "00", sep=""),
+         hour0 = ifelse(nchar(hour0) < 4, paste0("0", hour0), hour0))%>%
+  mutate(datetime = paste(date, hour0, sep = " "),
+         datetime = ymd_hm(datetime, tz = "MST"))
+
+sasp_skiles_dep <- sasp_05_14_depth_skiles %>%
+  mutate(hour0 = paste(hour, "00", sep=""),
+         hour0 = ifelse(nchar(hour0) < 4, paste0("0", hour0), hour0))%>%
+  mutate(datetime = paste(date, hour0, sep = " "),
+         datetime = ymd_hm(datetime, tz = "MST"))%>%
+  select(7,5)
+
+sasp_og_depth <- sasp %>%
+  select(datetime, Sno_Height_M)%>%
+  rename(depth_m_obs = 2)
+
+sasp_obs_merge <- sasp%>%
+  select(1,6:8,9)%>%
+  mutate(Tavg_C = (LoAir_Min_C+LoAir_Max_C)/2)%>%
+  rename(RH = "Lo_RH", Uavg_MS = "UpWind_Uavg_MS")%>%
+  select(1,4:6)
+  
+sasp_combined <- merge(sasp_skiles_rad, sasp_skiles_dep,
+                       by ="datetime", all = T)%>%
+  filter(datetime >	"2005-01-21 11:00:00")%>%
+  rename(depth_m_skiles = "depth_m")%>%
+  merge(., sasp_og_depth, by = "datetime")%>%
+  mutate(depth_diff = depth_m_obs - depth_m_skiles)%>%
+  select(1,2,19,20,3:17,21)%>%
+  mutate(depth_m = ifelse(depth_diff >-0.25, depth_m_skiles, depth_m_obs),
+         depth_m = ifelse(WY == "WY2005", depth_m_obs, depth_m))%>%
+  filter(!is.na(WY))%>%
+  mutate(SY = ifelse(date >= "2004-09-01" & date < "2005-09-01", "SY2005",
+              ifelse(date >= "2005-09-01" & date < "2006-09-01", "SY2006",
+              ifelse(date >= "2006-09-01" & date < "2007-09-01", "SY2007",
+              ifelse(date >= "2007-09-01" & date < "2008-09-01", "SY2008",
+              ifelse(date >= "2008-09-01" & date < "2009-09-01", "SY2009",
+              ifelse(date >= "2009-09-01" & date < "2010-09-01", "SY2010",
+              ifelse(date >= "2010-09-01" & date < "2011-09-01", "SY2011",
+              ifelse(date >= "2011-09-01" & date < "2012-09-01", "SY2012",                                     ifelse(date >= "2012-09-01" & date < "2013-09-01", "SY2013",
+              ifelse(date >= "2013-09-01" & date < "2014-09-01", "SY2014",NA)))))))))))%>%
+  mutate(DOSY = ifelse(doy > 243, doy-243, doy+122),
+         DOSY = ifelse(SY == "SY2009", ifelse(doy > 244, doy-244, doy+122), DOSY),
+         DOSY = ifelse(SY == "SY2013", ifelse(doy > 244, doy-244, doy+122), DOSY))%>%
+  select(2,1,7,6,5,22,23,8:15,21)%>%
+  rename(DOY = "doy")%>%
+  merge(., dust_df, by ="date", all=T)%>%
+  merge(., sasp_obs_merge, by = "datetime", all = T)%>%
+  filter(!is.na(SY))
+
+ggplot(sasp_combined, aes(x=datetime, y=depth_m))+
+  geom_point()+
+  facet_wrap(~SY, scales = "free")+
+  theme_bw()
+
+save(sasp_combined, file = "data/SASP_combined.Rdata")
+  
+
+```
+
 

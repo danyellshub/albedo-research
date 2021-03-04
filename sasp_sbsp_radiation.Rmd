@@ -150,9 +150,9 @@ boxplot(Hkin~site, data = unfilt_box)
 ```{r}
 
 # skiles_files <- list.files('data/Skiles_Data', full.names = TRUE)
-#   
+#
 # skiles_reader <- function(file){
-#   
+#
 #   data_names = str_sub(file, -8,-5)
 #   name = paste("WY", data_names, sep = "")
 #   df <- read_delim(file= file,
@@ -168,10 +168,10 @@ boxplot(Hkin~site, data = unfilt_box)
 #   mutate(WY = name)%>%
 #   select(18:19, 4:17)%>%
 #   mutate_all(funs(replace(., .<0,NA)))
-#   
+#
 #   return(df)
 # }
-# 
+#
 # sasp_05_14_skiles <- map_dfr(skiles_files, skiles_reader)
 
 #save(sasp_05_14_skiles, file = "data/sasp_05_14_skiles.Rdata")
@@ -294,6 +294,7 @@ depth_reader <- function(file){
 }
   
 sasp_05_14_depth_skiles <- map_dfr(skiles_depth, depth_reader)
+save(sasp_05_14_depth_skiles, file = "data/sasp_05_14_depth_skiles.Rdata")
 
 ```
 

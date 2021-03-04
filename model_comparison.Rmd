@@ -300,3 +300,60 @@ ggplot(vrsg_model_diff%>%filter(correct_m>0), aes(x=DOSY, y=abs_diff))+
 
 ```
 
+### SASP & SBSP Read In
+
+```{r}
+
+load(file = "data/SBSP_combined.Rdata")
+load(file = "data/SASP_combined.Rdata")
+
+sasp_combined_2 <- sasp_combined %>%
+  mutate(site = "SASP")
+sbsp_combined_2 <- sbsp_combined%>%
+  mutate(site = "SBSP")
+
+sasp_sbsp_long <- rbind(sasp_combined_2, sbsp_combined_2)%>%
+  mutate(hkin_vis = hkin_unfilt - hkin_filt,
+         hkout_vis = hkout_unfilt - hkout_filt,
+         alb_vis = hkout_vis/hkin_vis)%>%
+  filter(!is.na(alb_unfilt))%>%
+  filter(hkin_unfilt != 0,
+         alb_vis > 0)
+
+```
+
+### Graphing Function
+
+```{r}
+
+sasp_sbsp_graphs <- function(ydata, ylab){
+  plot <- ggplot(sasp_sbsp_long%>%filter(hour == 12), aes(x=date))+
+            geom_path(aes(y = {{ydata}}, color = site))+
+            scale_color_manual(values = c("red","blue"))+
+            theme_bw()+
+            facet_wrap(~SY, scales = "free_x", nrow = 5)+
+            xlab(element_blank())+
+            theme(legend.title = element_blank())+
+            ylab(ylab)
+return(plot)
+}
+
+sasp_sbsp_graphs(ydata = Tavg_C, ylab = "Temperature (C)")
+sasp_sbsp_graphs(ydata = Uavg_MS, ylab = "Wind Speed (MS)")
+sasp_sbsp_graphs(ydata = RH, ylab = "Relative Humidity")
+sasp_sbsp_graphs(ydata = depth_m, ylab = "Depth (M)")
+
+sasp_sbsp_graphs(ydata = hkin_unfilt, ylab = "Broadband Insolation (W/M^2)")
+sasp_sbsp_graphs(ydata = hkout_unfilt, ylab = "Outgoing Broadband Radiation (W/M^2)")
+sasp_sbsp_graphs(ydata = alb_unfilt, ylab = "Broadband Albedo")
+
+sasp_sbsp_graphs(ydata = hkin_filt, ylab = "NIR & SWIR Insolation (W/M^2)")
+sasp_sbsp_graphs(ydata = hkout_filt, ylab = "Outgoing NIR & SWIR Radiation (W/M^2)")
+sasp_sbsp_graphs(ydata = alb_filt, ylab = "NIR & SWIR Albedo")
+sasp_sbsp_graphs(ydata = hkin_vis, ylab = "Visible Insolation (W/M^2)")
+sasp_sbsp_graphs(ydata = hkout_vis, ylab = "Outgoing Visible Radiation (W/M^2)")
+sasp_sbsp_graphs(ydata = alb_vis, ylab = "Visible Albedo")
+
+```
+
+
