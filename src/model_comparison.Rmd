@@ -22,8 +22,11 @@ library(stringr)
 library(purrr)
 library(xts)
 library(dygraphs)
+library(ggpattern)
 
 setwd("~/Desktop/Albedo Analysis/albedo-research")
+
+#remotes::install_github("coolbutuseless/ggpattern")
 
 ```
 
@@ -325,6 +328,7 @@ sasp_radiation <- sasp%>%
          alb_filt_og = PyDwn_Filt_W/PyUp_Filt_W)%>%
   filter(datetime > "2005-01-25 12:00:00" & datetime < "2014-06-20 19:00:00")
 
+
 ```
 
 
@@ -551,6 +555,7 @@ ggplot(sasp_sbsp_long%>%filter(hour == 12 & DOSY < 318 & DOSY > 227 & !SY == "SY
                      sec.axis = sec_axis(~.*4, name = "Depth (m)"))
 ```
 
+
 ### Adjusted September and October
 
 2005: SASP looks good, SBSP, DOY272 NA or 0.2 albedo if depth is NA (or 0). DOY284 low albedo?
@@ -632,6 +637,45 @@ ggplot(sasp_sbsp_long%>%filter(hour == 12 & DOSY < 318 & DOSY > 227 & !SY == "SY
 #   scale_y_continuous(name = "Outgoing Radiation",
 #                      sec.axis = sec_axis(~./400, name = "Depth (m)"))+
 #   labs(subtitle = "Sep & Oct SBSP, + Skiles, o Observed")
+
+```
+
+### SASP Precip
+```{r}
+
+sasp_precip <- sasp%>%
+  select("datetime", "Day_H2O_mm")%>%
+  rename(h2o_mm = 2)
+
+sasp_precip_all <- sasp_combined_2%>%
+  merge(., sasp_precip, by = "datetime")%>%
+  filter(!is.na(SY))%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0, depth_diff),
+         depth_diff_pos = ifelse(depth_diff > 0, depth_diff, 0),
+         h2o_m = h2o_mm/1000)%>%
+  mutate(density = ifelse(depth_diff_pos > 0, h2o_mm/depth_diff_pos, 0))
+
+ggplot(sasp_precip_all%>%filter(hour(datetime) == 12 & !SY == "SY2005"), aes(x=date))+
+  geom_point(aes(y=h2o_m))+
+  geom_point(aes(y=depth_diff_pos), color = "snow3")+
+  facet_wrap(~SY, scales = "free_x", nrow = 3)+
+  theme_bw()+
+  xlab(element_blank())
+  
+ggplot(sasp_precip_all%>%filter(hour(datetime) == 12 & !SY == "SY2005")%>%mutate(type = ifelse(depth_diff_pos > 0, "Snow", "Rain")), aes(x=depth_diff_pos))+
+  geom_point(aes(y=h2o_m, shape = type, color = DOSY))+
+  facet_wrap(~SY, nrow = 3)+
+  theme_bw()+
+  xlab("∆ Depth (m)")+
+  ylab("Precipitation (m)")
+
+ggplot(sasp_precip_all%>%filter(hour(datetime) == 12 & !SY == "SY2005" & !density == 0), aes(x=date))+
+  geom_point(aes(y=density))+
+  facet_wrap(~SY, nrow = 3, scales = "free_x")+
+  theme_bw()+
+  xlab(element_blank())+
+  ylab("Density (kg/m3)")
 
 ```
 
@@ -988,5 +1032,126 @@ ggplot(sy2008_sbsp_abs_long%>%filter(!date == "2007-10-02" & date > "2007-09-15"
   xlab(element_blank())
 
 
-````
+sum(sy2008_sbsp_abs$vrsghy_abs) - sum(sy2008_sbsp_abs$hkabs_unfilt)
 
+```
+
+### Hk abs difference
+```{r}
+sy2008_sbsp_diff <- sy2008_sbsp_abs%>%
+  filter(date > "2008-04-15" & date < "2008-07-01")%>%
+  #filter(!date == "2007-10-02" & date > "2007-09-15" & date < "2007-12-21")%>%
+  summarise(., sum(vrsghy_abs), sum(hkabs_unfilt))%>%
+  rename(vrsghy_abs = 1, hkabs_unfilt = 2)%>%
+  mutate(diff = vrsghy_abs - hkabs_unfilt)
+sy2008_sbsp_diff
+
+sy2008_sasp_diff <- sy2008_sasp_abs%>%
+  filter(date > "2008-04-15" & date < "2008-07-01")%>%
+  #filter(!date == "2007-10-02" & date > "2007-09-15" & date < "2007-12-21")%>%
+  summarise(., sum(vrsghy_abs), sum(hkabs_unfilt))%>%
+  rename(vrsghy_abs = 1, hkabs_unfilt = 2)%>%
+  mutate(diff = vrsghy_abs - hkabs_unfilt)
+sy2008_sasp_diff
+
+
+```
+
+### New Snow in SY2008
+```{r}
+sy2008sasp <- sy2008sasp_cmprsn%>%
+  mutate(alb_diff = alb_unfilt - lag(alb_unfilt))%>%
+  mutate(alb_diff = ifelse(is.na(alb_diff),0,alb_diff))%>%
+  filter(hour==12)
+
+sy2008sbsp <- sy2008sbsp_cmprsn%>%
+  mutate(alb_diff = alb_unfilt - lag(alb_unfilt))%>%
+  mutate(alb_diff = ifelse(is.na(alb_diff),0,alb_diff))%>%
+  filter(hour==12)
+
+# ggplot(sy2008sasp%>%filter(!date == "2007-10-02" & date > "2008-04-15" & date < "2008-07-01"), aes(x=depth_diff, y=alb_unfilt))+
+#   geom_point(aes(color = date))+
+#   geom_path()
+# ggplot(sy2008sasp%>%filter(!date == "2007-10-02" & date > "2008-04-15" & date < "2008-07-01"), aes(x=depth_diff, y=alb_diff))+
+#   geom_point(aes(color = date))
+# ggplot(sy2008sasp%>%filter(!date == "2007-10-02" & date > "2008-04-15" & date < "2008-07-01"), aes(x=depth_m, y=alb_diff))+
+#   geom_point(aes(color = date))
+```
+
+
+```{r}
+ggplot(sy2008sasp%>%filter(!date == "2007-10-02" & date > "2008-04-15" & date < "2008-07-01"), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = date))+
+  geom_path(aes(color = date))+
+  scale_x_reverse()+
+  theme_bw()+
+  labs(x="Depth (m)", y = "Broadband Albedo")+
+  theme(text = element_text(size = 16, family = "Times New Roman"), legend.position = c(0.85,0.75), legend.title = element_blank())+
+  ylim(c(0,1))
+
+ggplot(sy2008sbsp%>%filter(!date == "2007-10-02" & date > "2008-04-15" & date < "2008-07-01"), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = date))+
+  geom_path(aes(color = date))+
+  scale_x_reverse()+
+  theme_bw()+
+  labs(x="Depth (m)", y = "Broadband Albedo")+
+  theme(text = element_text(size = 16, family = "Times New Roman"), legend.position = c(0.85,0.75), legend.title = element_blank())+
+  ylim(c(0,1))
+
+
+
+
+ggplot(sy2008sasp%>%filter(!date == "2007-10-02" & date > "2007-09-15" & date < "2007-12-21"), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = date))+
+  geom_path(aes(color = date))+
+  theme_bw()+
+  labs(x="Depth (m)", y = "Broadband Albedo")+
+  theme(text = element_text(size = 16, family = "Times New Roman"), legend.position = c(0.75,0.25), legend.title = element_blank())+
+  ylim(c(0,1))
+
+ggplot(sy2008sbsp%>%filter(!date == "2007-10-02" & date > "2007-09-15" & date < "2007-12-21"), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = date))+
+  geom_path(aes(color = date))+
+  theme_bw()+
+  labs(x="Depth (m)", y = "Broadband Albedo")+
+  theme(text = element_text(size = 16, family = "Times New Roman"), legend.position = c(0.75,0.25), legend.title = element_blank())+
+  ylim(c(0,1))
+
+```
+
+### New ----------
+
+### SY2006-2009
+```{r}
+sy0609_long <- sasp_sbsp_long%>%
+  filter(!SY %in% c("SY2005", "SY2010", "SY2011", "SY2012", "SY2013", "SY2014"))
+
+ggplot(sy0609_long%>%filter(hour == 12 & DOSY > 15 & DOSY < 304)%>%
+            filter(!is.na(alb_unfilt)),
+    aes(x=date))+
+    geom_col(aes(y = depth_m/4, fill = site), position = "identity", alpha = 0.8)+
+    geom_line(aes(y = alb_unfilt, linetype = site), color = "grey45")+
+    scale_linetype_manual(values = c("solid","dashed"))+
+    scale_fill_manual(values = c("steelblue4", "steelblue1"))+
+    theme_bw()+
+    facet_wrap(~SY, scales = "free_x", nrow = 3)+
+    xlab(element_blank())+
+    theme(legend.title = element_blank(), legend.position = c(0.5,0.37),
+          text = element_text(size = 14, family = "Times New Roman"))+
+    scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~.*4, name = "Depth (m)"))
+
+ggplot(sy0609_long%>%filter(hour == 12 & DOSY > 15 & DOSY < 304)%>%
+            filter(!is.na(alb_unfilt)), aes(x=depth_m))+
+  geom_point(aes(y=alb_unfilt, color = DOSY, shape = site), size =2)+
+  scale_shape_manual(values = c(1,4))+
+  facet_wrap(~SY, ncol = 2)+
+  theme_bw()+
+  ylab("Albedo")+
+  labs(title= "Senator Beck Basin (9/15- 7/1)")+
+  scale_color_gradient2(low = "gray10", mid = "snow3", high = "gray10", midpoint = 182)+
+  xlab("Depth (m)")+
+  theme(text = element_text(size = 16, family = "Times New Roman"))
+
+
+```
