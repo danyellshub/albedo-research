@@ -83,8 +83,7 @@ summary(SN)
 ```
 TEST
 ```{r}
-wtrloo_met_files
-
+# 
 test <- read_csv(file = "data/WtrLoo_Met/2005_weather_station_data.csv", col_names = T)%>%
   select(2,3,4,7,8,9,10,11,12,13)%>%
   mutate(minute = str_sub(Time, -2,-1),
@@ -121,7 +120,6 @@ test <- read_csv(file = "data/WtrLoo_Met/2005_weather_station_data.csv", col_nam
          "Uz" = "Wind Speed")%>%
   mutate(albedo = Hkout/Hkin)
 
-  names(test)
 ```
 
 
@@ -191,6 +189,7 @@ wtrloo_depth_met <- wtrloo_depth_all%>%
          DOSY = ifelse(SY == "SY2009" | SY == "SY2013",
                        ifelse(DOY > 244, DOY-244, DOY+122), DOSY),
          DOSY = ifelse(date == "2012-08-31" | date == "2008-08-31", 366, DOSY))%>%
+  mutate(depth_m = depth_cm/100)%>%
   filter(!is.na(SY))
 
 
@@ -217,15 +216,16 @@ ggplot(wtrloo_depth_met%>%filter(depth_cm >0 & albedo<1 & albedo>0 & DOSY < 250)
   facet_wrap(~SY, scales = "free_x")+
   theme_bw()+
   scale_color_continuous(high = "gray0", low = "snow2")
+
 ```
 
 ### SY2006 - SY2010 Plots
 
 ```{r}
-wtrloo_06_10 <- wtrloo_depth_met%>%
-  filter(!SY %in% c("SY2011", "SY2012", "SY2013"))
+wtrloo_06_09 <- wtrloo_depth_met%>%
+  filter(!SY %in% c("SY2011", "SY2012", "SY2013", "SY2010"))
 
-ggplot(wtrloo_06_10%>%filter(albedo<1 & albedo>0 & DOSY < 250), aes(x=depth_cm))+
+ggplot(wtrloo_06_10%>%filter(albedo<1 & albedo>0 & DOSY < 250), aes(x=depth_m))+
   geom_point(aes(y=albedo, color = DOSY))+
   theme_bw()+
   scale_color_continuous(high = "gray0", low = "snow2")
@@ -238,13 +238,36 @@ ggplot(wtrloo_06_10%>%filter(albedo<1 & albedo>0 & DOSY < 250 & Hkout > 1), aes(
   scale_y_continuous(name = "Albedo",
                      sec.axis = sec_axis(~.*30, name = "Depth (cm)"))+
    labs(title= "University of Waterloo Albedo vs Depth, SY(9/1-8/31)")
+
+
+ggplot(wtrloo_06_09%>%filter(albedo<0.99 & albedo>0 & DOSY < 243 & Hkout > 1 & DOSY > 45), aes(x=date))+
+  geom_line(aes(y=albedo), color = "gray45")+
+  geom_line(aes(y=depth_m*3), color = "steelblue2")+
+  facet_wrap(~SY, ncol = 2, scales = "free_x")+
+  theme_bw()+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~./3, name = "Depth (m)"))+
+  labs(title= "University of Waterloo (10/15- 5/1)")+
+  xlab(element_blank())+
+  theme(text = element_text(size = 16, family = "Times New Roman"))
+
+
+ggplot(wtrloo_06_09%>%filter(albedo<0.99 & albedo>0 & DOSY < 243 & Hkout > 1 & DOSY > 45), aes(x=depth_m))+
+  geom_point(aes(y=albedo, color = DOSY))+
+  facet_wrap(~SY, ncol = 2)+
+  theme_bw()+
+  ylab("Albedo")+
+  labs(title= "University of Waterloo (10/15- 5/1)")+
+  scale_color_gradient2(low = "gray10", mid = "snow3", high = "gray10", midpoint = 182)+
+  xlab("Depth (m)")+
+  theme(text = element_text(size = 16, family = "Times New Roman"))
   
 ```
 
 ### Depth at 0 and greater than 0
 ```{r}
 
-ggplot(wtrloo_06_10%>%filter(albedo<0.99 & albedo >0 & DOSY < 250 & depth_cm > 0 & Hkout > 1), 
+ggplot(wtrloo_06_10%>%filter(albedo<0.99 & albedo >0 & DOSY < 243 & depth_cm > 0 & Hkout > 1), 
        aes(x=date))+
   geom_point(aes(y=albedo), color = "gray45")+
   geom_col(aes(y=depth_cm/30), fill = "steelblue2")+
@@ -301,4 +324,9 @@ ggplot(clouds, aes(x=avg_hourly_cloud_cover_4, y=avg_cloud_cover_4))+
 
 
 ```
+
+```{r}
+
+```
+
 
