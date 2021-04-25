@@ -22,11 +22,39 @@ library(stringr)
 library(purrr)
 library(xts)
 library(dygraphs)
-library(ggpattern)
+library(hms)
 
 setwd("~/Desktop/Albedo Analysis/albedo-research")
 
 #remotes::install_github("coolbutuseless/ggpattern")
+
+```
+
+### Solar Noon SBB
+```{r}
+
+sasp_lat = 37.906909
+sasp_long = -107.711317
+sbsp_lat = 37.906879
+sbsp_long  = -107.726259
+
+date <- seq.Date(from = as.Date("2005-09-01", tz = "EST"), 
+                 to = as.Date("2015-04-30", tz = "EST"), 
+                 by = 1)
+
+sunlight_data <- getSunlightTimes(date = date,
+                                  lat = sasp_lat,
+                                  lon = sasp_long,
+                                  tz = "MST", 
+                                  keep = c("sunrise", "solarNoon", "sunset"))
+
+SN <- sunlight_data%>%
+  select(5)%>%
+  mutate(date = date(solarNoon),
+         time = as_hms(solarNoon))%>%
+  select(2,3)%>%
+  as_tibble(.)%>%
+  rename(solarNoon = "time")
 
 ```
 
@@ -411,9 +439,9 @@ sasp_sbsp_long <- rbind(sasp_combined_2, sbsp_combined_2)%>%
    mutate(hkin_vis = hkin_unfilt - hkin_filt,
          hkout_vis = hkout_unfilt - hkout_filt,
          alb_vis = hkout_vis/hkin_vis)%>%
-  filter(!is.na(alb_unfilt))%>%
-  filter(hkin_unfilt != 0,
-         alb_vis > 0)%>%
+  # filter(!is.na(alb_unfilt))%>%
+  # filter(hkin_unfilt != 0,
+  #        alb_vis > 0)%>%
   mutate(depth_m = ifelse(DOSY > 121 & is.na(depth_m) &
                             !SY %in% c("SY2007", "SY2011"), 0, 
                           ifelse(SY %in% c("SY2007", "SY2011") &
@@ -422,9 +450,11 @@ sasp_sbsp_long <- rbind(sasp_combined_2, sbsp_combined_2)%>%
                             depth_m)))%>%
   mutate(alb_unfilt = ifelse(date == "2009-09-01", 0.18, alb_unfilt))
 
+
+
   filter(hour %in% c(9,10,11,12,13,14,15))
 
-
+save(sasp_sbsp_long, file = "data/sasp_sbsp_long.Rdata")
 ```
 
 ### Graphing Function
@@ -689,13 +719,22 @@ ggplot(sasp_precip_all%>%filter(hour(datetime) == 12 & !SY == "SY2005" & !densit
 sy2008 <- sasp_sbsp_long%>%
   filter(SY == "SY2008")
 
-ggplot(sy2008, aes(x=datetime))+
-  geom_point(aes(y=alb_unfilt, color = site), size = 0.5)+
+# test <- sy2008%>%
+#   filter(SY == "SY2008")%>%
+#   filter(alb_unfilt < 0.3 & depth_m == 0)%>%
+#   summarize(mean = mean(alb_unfilt))
+
+ggplot(sy2008%>%filter(DOSY >61 & DOSY < 91 & hour ==12), aes(x=datetime))+
+  geom_line(aes(y=alb_unfilt, color = site, linetype = site))+
+  geom_point(aes(y=alb_unfilt, color = site, shape =site), size = 1)+
+  geom_hline(yintercept = 0.2, linetype = "dotdash")+
   scale_color_manual(values = c("plum4", "red4"))+
-  geom_line(aes(y=depth_m, linetype = site))+
-  scale_y_continuous(name = "Albedo",
-                     sec.axis = sec_axis(~., name = "Depth (m)"))+
-  theme_minimal()
+  geom_line(aes(y=depth_m+0.2, linetype = site), color = "steelblue2")+
+  scale_y_continuous(name = "Albedo", limits = c(0.2,1),
+                     sec.axis = sec_axis(~.-0.2, name = "Depth (m)"))+
+  theme_bw()+
+  theme(legend.position = c(0.15,0.8), legend.title = element_blank(), text = element_text(size = 14, family = "Times New Roman"))+
+  xlab(element_blank())
 
 ggplot(sy2008%>%filter(hour == 12), aes(x=date))+
   geom_line(aes(y = alb_unfilt, linetype = site), color = "grey45")+
@@ -705,13 +744,13 @@ ggplot(sy2008%>%filter(hour == 12), aes(x=date))+
                      sec.axis = sec_axis(~.*4, name = "Depth (m)"))+
   theme_bw()
 
-ggplot(sy2008%>%filter(hour == 12), aes(x=depth_m))+
-  geom_point(aes(y = alb_unfilt, shape = site, color = DOSY), size =2)+
+ggplot(sy2008%>%filter(hour == 12)%>%rename("Site" = site), aes(x=depth_m))+
+  geom_point(aes(y = alb_unfilt, shape = Site, color = DOSY), size =2)+
   scale_shape_manual(values = c(1,4))+
-  labs(x="Depth (m)", y = "Unfiltered Albedo")+
+  labs(x="Depth (m)", y = "Broadband Albedo")+
   scale_color_gradient2(low = "gray10", mid = "snow3", high = "gray10", midpoint = 201)+
   theme_bw()+
-  theme(text = element_text(size = 14, family = "Times New Roman"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
   ylim(c(0,1))
 
 ```
@@ -768,6 +807,7 @@ Bare Ground = 0.18
 
 sy2008sasp_cmprsn <- sy2008%>%
   filter(site == "SASP")%>%
+  filter(hour == 12)%>%
   mutate(depth_diff = depth_m - lag(depth_m),
          depth_diff = ifelse(is.na(depth_diff),0,depth_diff),
          depth_diff_pos = ifelse(depth_diff >0, depth_diff, 0),
@@ -792,10 +832,11 @@ for(i in 1:nrow(sy2008sasp_cmprsn)){
 sy2008sasp_cmprsn$vrsghy_alb <- alb_loop
 
 
-##SBSPS
+##SBSP
 
 sy2008sbsp_cmprsn <- sy2008%>%
   filter(site == "SBSP")%>%
+  filter(hour == 12)%>%
   mutate(depth_diff = depth_m - lag(depth_m),
          depth_diff = ifelse(is.na(depth_diff),0,depth_diff),
          depth_diff_pos = ifelse(depth_diff >0, depth_diff, 0),
@@ -822,55 +863,57 @@ sy2008sbsp_cmprsn$vrsghy_alb <- alb_loop
 ```
 
 ```{r}
-
+### SBSP
 
 sy2008sbsp_long <- sy2008sbsp_cmprsn%>%
   filter(hour == 12)%>%
   select(2, 11, 31, 27)%>%
   rename("Observed" = alb_unfilt,
          "Modeled" = vrsghy_alb)%>%
-  gather(., key = "Type", value = "Albedo", -date, -depth_diff)%>%
-  mutate(depth_diff = depth_diff/1)
+  gather(., key = "Type", value = "Albedo", -date, -depth_diff)
 
-ggplot(sy2008sbsp_cmprsn%>%filter(hour==12), aes(x=date, y=vrsghy_alb))+
-  geom_line(aes(y=alb_unfilt), linetype = "solid")+
-  geom_line(aes(y=vrsghy_alb), linetype = "dotdash", color = "red4")+
-  geom_col(aes(y=depth_diff*4), fill = "steelblue3", width = 1)+
-  theme_bw()+
-  theme(text = element_text(size = 14, family = "Times New Roman"))+
-  scale_y_continuous(name = "Broadband Albedo",
-                     sec.axis = sec_axis(~., name = "Depth (m)"))
+# ggplot(sy2008sbsp_cmprsn%>%filter(hour==12), aes(x=date, y=vrsghy_alb))+
+#   geom_line(aes(y=alb_unfilt), linetype = "solid")+
+#   geom_line(aes(y=vrsghy_alb), linetype = "dotdash", color = "red4")+
+#   geom_col(aes(y=depth_diff*4), fill = "steelblue3", width = 1)+
+#   theme_bw()+
+#   theme(text = element_text(size = 14, family = "Times New Roman"))+
+#   scale_y_continuous(name = "Broadband Albedo",
+#                      sec.axis = sec_axis(~., name = "Depth (m)"))
 
 
 ggplot(sy2008sbsp_long, aes(x=date))+
   geom_line(aes(y=Albedo, linetype = Type, color = Type))+
   scale_color_manual(values = c("red4","black"))+
   scale_linetype_manual(values = c("dotdash", "solid"))+
-  geom_col(aes(y=depth_diff*4/2), fill = "steelblue3", width = 1)+
+  geom_col(aes(y=depth_diff/2), fill = "steelblue3", width = 1)+
   theme_bw()+
   theme(text = element_text(size = 16, family = "Times New Roman"), legend.position = c(0.9,0.13), legend.title = element_blank())+
   scale_y_continuous(name = "Broadband Albedo",
-                     sec.axis = sec_axis(~./4, name = "∆ Depth (m)"))+
-  xlab(element_blank())
+                     sec.axis = sec_axis(~., name = "∆ Depth (m)"))+
+  xlab(element_blank())+
+  labs(title = expression("SBSP, noon to noon:"~e^-0.02))
+
+### SASP
 
 sy2008sasp_long <- sy2008sasp_cmprsn%>%
   filter(hour == 12)%>%
   select(2, 11, 31, 27)%>%
   rename("Observed" = alb_unfilt,
          "Modeled" = vrsghy_alb)%>%
-  gather(., key = "Type", value = "Albedo", -date, -depth_diff)%>%
-  mutate(depth_diff = depth_diff/1)
+  gather(., key = "Type", value = "Albedo", -date, -depth_diff)
 
 ggplot(sy2008sasp_long%>%filter(!date == "2007-10-02"), aes(x=date))+
   geom_line(aes(y=Albedo, linetype = Type, color = Type))+
   scale_color_manual(values = c("red4","black"))+
   scale_linetype_manual(values = c("dotdash", "solid"))+
-  geom_col(aes(y=depth_diff*4/2), fill = "steelblue3", width = 1)+
+  geom_col(aes(y=depth_diff/2), fill = "steelblue3", width = 1)+
   theme_bw()+
   theme(text = element_text(size = 16, family = "Times New Roman"), legend.position = c(0.9,0.13), legend.title = element_blank())+
   scale_y_continuous(name = "Broadband Albedo",
-                     sec.axis = sec_axis(~./4, name = "∆ Depth (m)"))+
-  xlab(element_blank())
+                     sec.axis = sec_axis(~., name = "∆ Depth (m)"))+
+  xlab(element_blank())+
+  labs(title = expression("SASP, noon to noon:"~e^-0.02))
 
 ```
 
@@ -1118,6 +1161,91 @@ ggplot(sy2008sbsp%>%filter(!date == "2007-10-02" & date > "2007-09-15" & date < 
   ylim(c(0,1))
 
 ```
+
+### Vrsghy Attempt Using Hourly
+```{r}
+hrly_sasp_vrsghy <- sasp_combined%>%
+  mutate(depth_m = ifelse(is.na(depth_m),0,depth_m))%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff),0,depth_diff),
+         depth_diff_pos = ifelse(depth_diff >0, depth_diff, 0),
+         cumsnow = cumsum(depth_diff_pos),
+         alb_min = ifelse(Tavg_C < 0 & depth_diff_pos == 0, 0.7,
+                          ifelse(Tavg_C >= 0, 0.5, NA)),
+         alb_min = ifelse(Tavg_C > 0 & cumsnow == lag(cumsnow), 0.18, alb_min))%>%
+  mutate(vrsghy_alb = ifelse(cumsnow == 0, 0.18, NA),
+         vrsghy_alb = ifelse(depth_diff_pos > 0, 0.84, vrsghy_alb),
+         vrsghy_alb = ifelse(depth_m == 0, 0.18, vrsghy_alb))
+  
+
+alb_loop = hrly_sasp_vrsghy$vrsghy_alb
+alb_min = hrly_sasp_vrsghy$alb_min
+
+for(i in 1:nrow(hrly_sasp_vrsghy)){
+  if(is.na(alb_loop[i])){
+    alb_loop[i] = ((alb_loop[i-1] - alb_min[i])*exp(-0.02)+alb_min[i])
+  }
+}
+
+hrly_sasp_vrsghy$vrsghy_alb <- alb_loop
+
+ggplot(hrly_sasp_vrsghy%>%filter(hour == 12 & SY == "SY2008" & !DOSY == 32), aes(x=date))+
+  geom_line(aes(y=vrsghy_alb), linetype = "dashed", color = "red4")+
+  geom_line(aes(y=alb_unfilt))+
+  geom_col(aes(y=depth_diff*3), fill = "steelblue3")+
+  theme_bw()+
+  theme(text = element_text(size = 16, family = "Times New Roman"))+
+  xlab(element_blank())+
+   scale_y_continuous(name = "Broadband Albedo",
+                     sec.axis = sec_axis(~./3, name = "∆ Depth (m)"))+
+  labs(title = expression("SASP, hourly:"~e^-0.02))
+
+
+### SBSP
+
+hrly_sbsp_vrsghy <- sbsp_combined%>%
+  filter(!date == "2008-01-01")%>%
+  mutate(depth_m = ifelse(is.na(depth_m) & DOSY < 30,0,depth_m))%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff),0,depth_diff),
+         depth_diff_pos = ifelse(depth_diff >0, depth_diff, 0),
+         cumsnow = cumsum(depth_diff_pos),
+         alb_min = ifelse(Tavg_C < 0 & depth_diff_pos == 0, 0.7,
+                          ifelse(Tavg_C >= 0, 0.5, NA)),
+         alb_min = ifelse(Tavg_C > 0 & cumsnow == lag(cumsnow), 0.18, alb_min))%>%
+  mutate(vrsghy_alb = ifelse(cumsnow == 0, 0.18, NA),
+         vrsghy_alb = ifelse(depth_diff_pos > 0, 0.84, vrsghy_alb),
+         vrsghy_alb = ifelse(depth_m == 0, 0.18, vrsghy_alb))
+  
+
+alb_loop = hrly_sbsp_vrsghy$vrsghy_alb
+alb_min = hrly_sbsp_vrsghy$alb_min
+
+for(i in 1:nrow(hrly_sbsp_vrsghy)){
+  if(is.na(alb_loop[i])){
+    alb_loop[i] = ((alb_loop[i-1] - alb_min[i])*exp(-0.02)+alb_min[i])
+  }
+}
+
+hrly_sbsp_vrsghy$vrsghy_alb <- alb_loop
+
+ggplot(hrly_sbsp_vrsghy%>%filter(hour == 12 & SY == "SY2008"), aes(x=date))+
+  geom_line(aes(y=vrsghy_alb), linetype = "dashed", color = "red4")+
+  geom_line(aes(y=alb_unfilt))+
+  geom_col(aes(y=depth_diff*3), fill = "steelblue3")+
+  theme_bw()+
+  theme(text = element_text(size = 16, family = "Times New Roman"))+
+  xlab(element_blank())+
+   scale_y_continuous(name = "Broadband Albedo",
+                     sec.axis = sec_axis(~./3, name = "∆ Depth (m)"))+
+  labs(title = expression("SBSP, hourly:"~e^-0.02))
+
+
+
+
+```
+
+
 
 ### New ----------
 

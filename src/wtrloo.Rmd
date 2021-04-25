@@ -77,48 +77,47 @@ SN <- sunlight_data%>%
   as_tibble(.)%>%
   rename(solarNoon = "time")
 
-summary(SN)
 
 
 ```
 TEST
 ```{r}
 # 
-test <- read_csv(file = "data/WtrLoo_Met/2005_weather_station_data.csv", col_names = T)%>%
-  select(2,3,4,7,8,9,10,11,12,13)%>%
-  mutate(minute = str_sub(Time, -2,-1),
-         hour = str_sub(Time, -4,-3),
-         hour = ifelse(hour == "", 0, hour))%>%
-  rename("year" =1, "DOY" = 2)%>%
-  mutate(datetime_raw = paste(year, DOY, hour, minute),
-         datetime = strptime(datetime_raw, "%Y %j %H %M"),
-         date = as.Date(datetime_raw, "%Y %j"))%>%
-  mutate(time = substr(as.POSIXct(sprintf("%04.0f", Time), format = "%H%M"),  12, 19))%>%
-  filter(time %in% c("12:00:00","12:15:00","12:30:00","12:45:00"))%>%
-  merge(., SN, by = "date")%>%
-  mutate(solarNoon = as.character(solarNoon))%>%
-  mutate(sn_minute = str_sub(solarNoon, 4,5),
-         time_minute = str_sub(time, 4,5),
-         sn_minute = as.numeric(sn_minute),
-         time_minute = as.numeric(time_minute),
-         sn_minute = sn_minute/60,
-         time_minute = time_minute/60,
-         sn_minute = as.numeric(str_sub(solarNoon, 1,2))+sn_minute,
-         time_minute = as.numeric(str_sub(time, 1,2))+time_minute,
-         time_diff = abs(time_minute - sn_minute))%>%
-  group_by(DOY)%>%
-  mutate(min_diff = min(time_diff))%>%
-  mutate(min_diff_filt = ifelse(min_diff == time_diff, 1, 0))%>%
-  filter(min_diff_filt == 1)%>%
-  select(1,3,16,17,5:11)%>%
-  rename("Hkin" = "Incoming Shortwave Radiation",
-         "Hkout" = "Reflected Shortwave Radiation",
-         "RH" = "Relative Humidity",
-         "Ta" = "Ambient Air Temperature", 
-         "Pa" = "Barometric Pressure",
-         "Udir" = "Wind Direction",
-         "Uz" = "Wind Speed")%>%
-  mutate(albedo = Hkout/Hkin)
+# test <- read_csv(file = "data/WtrLoo_Met/2005_weather_station_data.csv", col_names = T)%>%
+#   select(2,3,4,7,8,9,10,11,12,13)%>%
+#   mutate(minute = str_sub(Time, -2,-1),
+#          hour = str_sub(Time, -4,-3),
+#          hour = ifelse(hour == "", 0, hour))%>%
+#   rename("year" =1, "DOY" = 2)%>%
+#   mutate(datetime_raw = paste(year, DOY, hour, minute),
+#          datetime = strptime(datetime_raw, "%Y %j %H %M"),
+#          date = as.Date(datetime_raw, "%Y %j"))%>%
+#   mutate(time = substr(as.POSIXct(sprintf("%04.0f", Time), format = "%H%M"),  12, 19))%>%
+#   filter(time %in% c("12:00:00","12:15:00","12:30:00","12:45:00"))%>%
+#   merge(., SN, by = "date")%>%
+#   mutate(solarNoon = as.character(solarNoon))%>%
+#   mutate(sn_minute = str_sub(solarNoon, 4,5),
+#          time_minute = str_sub(time, 4,5),
+#          sn_minute = as.numeric(sn_minute),
+#          time_minute = as.numeric(time_minute),
+#          sn_minute = sn_minute/60,
+#          time_minute = time_minute/60,
+#          sn_minute = as.numeric(str_sub(solarNoon, 1,2))+sn_minute,
+#          time_minute = as.numeric(str_sub(time, 1,2))+time_minute,
+#          time_diff = abs(time_minute - sn_minute))%>%
+#   group_by(DOY)%>%
+#   mutate(min_diff = min(time_diff))%>%
+#   mutate(min_diff_filt = ifelse(min_diff == time_diff, 1, 0))%>%
+#   filter(min_diff_filt == 1)%>%
+#   select(1,3,16,17,5:11)%>%
+#   rename("Hkin" = "Incoming Shortwave Radiation",
+#          "Hkout" = "Reflected Shortwave Radiation",
+#          "RH" = "Relative Humidity",
+#          "Ta" = "Ambient Air Temperature", 
+#          "Pa" = "Barometric Pressure",
+#          "Udir" = "Wind Direction",
+#          "Uz" = "Wind Speed")%>%
+#   mutate(albedo = Hkout/Hkin)
 
 ```
 
@@ -311,22 +310,93 @@ wtrloo_depth_corr <- wtrloo_depth_met%>%
 ## Sky Conditions 
 ```{r}
 
-ktchnr_wtrloo <- read_csv("data/kitchenerwaterloo_daily.csv", col_names = T)
-names(ktchnr_wtrloo)
-clouds <- ktchnr_wtrloo%>%
-  select(1,59:62)%>%
-  mutate(date = ymd(date))
+# ktchnr_wtrloo <- read_csv("data/kitchenerwaterloo_daily.csv", col_names = T)
+# names(ktchnr_wtrloo)
+# clouds <- ktchnr_wtrloo%>%
+#   select(1,59:62)%>%
+#   mutate(date = ymd(date))
+# 
+# ggplot(clouds, aes(x=avg_hourly_cloud_cover_4, y=avg_cloud_cover_4))+
+#   geom_point()+
+#   geom_abline()
+# 
+# hist(clouds$avg_cloud_cover_4)
+# hist(clouds$avg_hourly_cloud_cover_4)
+# 
+# clouds_2 <- clouds%>%
+#   select(date, avg_hourly_cloud_cover_4)%>%
+#   rename(cover = 2)%>%
+#   mutate(perc_cover = cover/4)
 
-ggplot(clouds, aes(x=avg_hourly_cloud_cover_4, y=avg_cloud_cover_4))+
-  geom_point()+
-  geom_abline()
+lat = 43.473308
+lat_rad = lat*(pi/180)
+long = -80.557102
+long_corr = ((long--75)/15)
+names(wtrloo_depth_met)
 
+wtrloo_zen <- wtrloo_depth_met%>%
+  select(1,3,5,4)%>%
+  rename("DOY" = DOY)%>%
+  mutate(LST = time,
+         LST = str_sub(LST, 1, 5),
+         LST_dec = sapply(strsplit(LST, ":"),
+                           function(t){
+                             t <- as.numeric(t)
+                             t[1]+t[2]/60}),
+         LMT = LST_dec + long_corr)%>%
+  mutate(day_angle = (2*pi*(DOY-1))/365,
+         eccentricity = 1.000110 + 0.0342221*cos(day_angle)+
+                        0.001280*sin(day_angle)+0.000719*cos(2*day_angle)+
+                        0.000077*sin(2*day_angle),
+         declination = 0.006918 - 0.399912*cos(day_angle)+ 0.070257*sin(day_angle)-
+                       0.006758*cos(2*day_angle) + 0.000907*sin(2*day_angle)-
+                       0.002697*cos(3*day_angle) + 0.00148*sin(3*day_angle),
+         eq_of_time = 0.000292 + 0.007264*cos(day_angle) - 0.12474*sin(day_angle)-
+                      0.05684*cos(2*day_angle) - 0.15886*sin(2*day_angle))%>%
+  mutate(LAT = LMT + eq_of_time,
+         t_sn = LAT - 12)%>% ### standard reading of 12 as in noon
+  mutate(minute_time = as.numeric(str_sub(time, 4, 5))/60,
+         minute_sn = as.numeric(str_sub(solarNoon,4,5))/60,
+         t_sn_2 = minute_time - minute_sn)%>% ### solarnoon found from suncalc  
+  mutate(zenith_angle = acos(cos(declination)*cos(lat_rad)*cos(0.2618*t_sn)+
+                               sin(declination)*sin(lat_rad)),
+         zenith_angle_2 = acos(cos(declination)*cos(lat_rad)*cos(0.2618*t_sn_2)+
+                               sin(declination)*sin(lat_rad)),
+         zenith_deg = zenith_angle*(180/pi),
+         zenith_deg_2 = zenith_angle_2*(180/pi))%>%
+  merge(., clouds_2, by = "date")%>%
+  mutate(Hkin = 1367*eccentricity*cos(zenith_angle)*(0.355+0.68*(1-perc_cover)),
+         Hkin_2 = 1367*eccentricity*cos(zenith_angle_2)*(0.355+0.68*(1-perc_cover)))
+
+# ggplot(wtrloo_zen, aes(x=perc_cover, y = Hkin))+
+#   geom_point()
+# ggplot(wtrloo_zen, aes(x=Hkin_2, y = Hkin))+
+#    geom_point()
+
+ggplot(wtrloo_zen, aes(x=t_sn, y=t_sn_2))+
+  geom_point()
+ggplot(wtrloo_zen, aes(x=zenith_angle, y=zenith_angle_2))+
+  geom_point()
 
 
 ```
 
+### Modeled Hkin Albedo
+
 ```{r}
 
+wtrloo_hkin <- wtrloo_zen%>%
+  select(1,11)%>%
+  rename("Hkin_mod" = 2)
+
+wtrloo_model <- merge(wtrloo_depth_met, wtrloo_hkin, by = "date")%>%
+  mutate(alb_model = Hkout/Hkin_mod)%>%
+  mutate(alb_final = ifelse(albedo > 1 & albedo < 1 & !is.na(alb_model), alb_model, albedo))
+
+```
+
+```{r}
+ggplot()
 ```
 
 
