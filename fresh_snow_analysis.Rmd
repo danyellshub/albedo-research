@@ -140,7 +140,6 @@ SWE_yrly <- fresh_snow_2%>%
 
 ### Fresh Snow Albedo
 ```{r}
-
 fresh_snow_3 <- fresh_snow_2 %>%
   filter(alb_unfilt < 0.99 & alb_unfilt > 0.1)%>%
   mutate(alb_diff = alb_unfilt - lag(alb_unfilt))
@@ -151,17 +150,16 @@ ggplot(fresh_snow_3%>%filter(depth_diff >0 & hour == 12), aes(x=Tavg_C, y=alb_di
   theme_bw()
 
 fresh_snow_events_SASP <- fresh_snow_3%>%
-  filter(site == "SASP")%>%
+  #filter(site == "SASP")%>%
   filter(depth_diff > 0 & alb_diff > 0)%>%
   mutate(alb_tminus1 = alb_unfilt - alb_diff,
          temp_tminus1 = lag(Tavg_C))%>%
-  mutate(temp_cat = ifelse(temp_tminus1 > 0, ">0°C", 
-                           ifelse(temp_tminus1 < 0 & temp_tminus1 > -10, "0°C to -10°C",
-                                  ifelse(temp_tminus1 < -10 & temp_tminus1 > -20, "-10°C to -20°C", "<-20°C"))))%>%
+  mutate(temp_cat = ifelse(temp_tminus1 > 3, ">3°C", 
+                           ifelse(temp_tminus1 < 3 & temp_tminus1 > -3, "-3°C to 3°C",
+                                  ifelse(temp_tminus1 < -3 & temp_tminus1 > -10, "-10°C to -3°C", "<-10°C"))))%>%
   filter(!is.na(temp_cat))
 
-fresh_snow_events_SASP$temp_cat <- factor(fresh_snow_events_SASP$temp_cat, levels = c(">0°C", "0°C to -10°C", "-10°C to -20°C", "<-20°C" ))
-
+fresh_snow_events_SASP$temp_cat <- factor(fresh_snow_events_SASP$temp_cat, levels = c(">3°C", "-3°C to 3°C", "-10°C to -3°C", "<-10°C" ))
 
 ggplot(fresh_snow_events_SASP, aes(x=DOSY, y=alb_tminus1))+
   geom_point(aes(color = alb_diff))+
@@ -172,32 +170,50 @@ ggplot(fresh_snow_events_SASP, aes(x=DOSY, y=alb_tminus1))+
   labs(x="DOSY", y="Albedo:(t-1)")+  
   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
   
-
 ggplot(fresh_snow_events_SASP, aes(x=DOSY, y=alb_unfilt))+
   geom_point(aes(color = alb_diff))+
   scale_color_gradient(low = "blue", high = "red")+
   theme_bw()+
   ylim(c(0,1))+
   facet_wrap(~SY)+
-  labs(x="DOS", y="Albedo")+  
+  labs(x="DOSY", y="Albedo")+  
   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
+```
 
-ggplot(fresh_snow_events_SASP, aes(x=DOSY, y=alb_unfilt))+
-  geom_point(aes(shape = temp_cat, color = depth_diff))+
+
+### Numerical Analysis
+
+```{r}
+
+fresh_snow_SASP <- fresh_snow_events_SASP%>%
+  mutate(depth_perc = ifelse(depth_m >0, depth_diff/depth_m, NA),
+         depth_perc = depth_perc*100)%>%
+  filter(depth_diff < 0.1 | alb_unfilt > 0.3)%>%
+  filter(depth_diff < 0.6)%>%
+  mutate(temp_change = Tavg_C - temp_tminus1)
+
+ggplot(fresh_snow_SASP, aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = depth_diff))+
   scale_color_gradient(low = "blue", high = "red")+
   theme_bw()+
   ylim(c(0,1))+
-  facet_wrap(~SY)+
-  labs(x="DOS", y="Albedo")+  
-  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
+  labs(x="Depth (m)", y="Albedo")+  
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  facet_wrap(~temp_cat)
+
+ggplot(fresh_snow_SASP%>%filter(depth_diff < 0.05), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color=depth_diff))+
+  theme_bw()+
+  scale_color_gradient(low = "blue", high = "red")+
+  ylim(c(0,1))+
+  facet_wrap(~temp_cat)+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  labs(x="Depth (m)", y="Albedo")
 
 ```
 
-Numerical Analysis
+
 ```{r}
-fresh_snow_SASP <- fresh_snow_events_SASP%>%
-  mutate(depth_perc = ifelse(depth_m >0, depth_diff/depth_m, NA),
-         depth_perc = depth_perc*100)
 
 ggplot(fresh_snow_SASP, aes(x=depth_perc, y=alb_unfilt))+
   geom_point(aes(shape = temp_cat, color = depth_diff))+
@@ -208,16 +224,28 @@ ggplot(fresh_snow_SASP, aes(x=depth_perc, y=alb_unfilt))+
   labs(x="%∆Depth", y="Albedo")+  
   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
 
-ggplot(fresh_snow_SASP, aes(x=alb_tminus1, y=alb_unfilt))+
+ggplot(fresh_snow_SASP,aes(x=alb_tminus1, y=alb_unfilt))+
   geom_point(aes(shape = temp_cat, color = depth_perc))+
   scale_color_gradient(low = "blue", high = "red")+
   geom_abline()+
   theme_bw()+
-  ylim(c(0,1))
+  ylim(c(0,1))+
+  xlim(c(0,1))+
   facet_wrap(~SY)+
-  labs(x="Albed0 (t-1)", y="Albedo")+  
+  labs(x="Albedo (t-1)", y="Albedo")+  
   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
   
+
+ggplot(fresh_snow_SASP%>%filter(depth_diff <0.3), aes(x=temp_tminus1, y=alb_unfilt))+
+  geom_point(aes(shape = temp_cat, color = depth_diff))+
+  scale_color_gradient(low = "blue", high = "red")+
+  theme_bw()+
+  ylim(c(0,1))+
+  labs(x="Temperature(°C): (t-1)", y="Albedo")+  
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
+
+
+
 ```
 
 Clustering Attempt
@@ -235,12 +263,83 @@ head(cls$centers)
 ggplot()+
   geom_point(data = cluster_date, 
              mapping = aes(x=temp_tminus1, 
-                          y=alb_unfilt, color = cluster))+
+                          y=alb_unfilt, color = cluster, shape = cluster))+
   geom_point(mapping = aes_string(x=cls$centers[,"temp_tminus1"],
-                                  y=cls$centers[,"alb_unfilt"]),color = "red", size=4)+
+                                  y=cls$centers[,"alb_unfilt"]),color = "snow", size=4)+
   geom_text(mapping = aes_string(x=cls$centers[,"temp_tminus1"],
                                  y=cls$centers[,"alb_unfilt"],
-                                 label = 1:4), color = "black", size = 4)
-  
+                                 label = 1:4), color = "black", size = 6, family = "Times New Roman")+
+  theme_bw()+
+  ylim(c(0,1))+
+  labs(x="Temperature°C (t-1)", y="Albedo")+  
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), 
+        legend.title = element_blank())
+
+
+```
+
+### Cluster DataFrames
+
+```{r}
+group_1 <- cluster_date%>%
+  filter(cluster == 1)
+summary(group_1)
+group_2 <- cluster_date%>%
+  filter(cluster == 2)
+summary(group_2)
+group_3 <- cluster_date%>%
+  filter(cluster == 3)
+summary(group_3)
+group_4 <- cluster_date%>%
+  filter(cluster == 4)
+summary(group_4)
+
+
+unique(fresh_snow_SASP$temp_cat)
+
+
+ggplot(fresh_snow_SASP%>%filter(temp_cat == ">3°C"), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = depth_diff))+
+  ylim(c(0,1))
+ggplot(fresh_snow_SASP%>%filter(temp_cat == "-3°C to 3°C"), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = depth_diff))+
+  ylim(c(0,1))
+ggplot(fresh_snow_SASP%>%filter(temp_cat == "-10°C to -3°C"), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = depth_diff))+
+  ylim(c(0,1))
+ggplot(fresh_snow_SASP%>%filter(temp_cat == "<-10°C"), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = depth_diff))+
+  ylim(c(0,1))
+
+ggplot(fresh_snow_SASP, aes(x=depth_m, y=depth_perc))+
+  geom_point(aes(color = alb_unfilt))+
+  facet_wrap(~temp_cat)+
+  scale_color_gradient(low = "black", high = "white")+
+  theme_bw()
+  scale_y_continuous(breaks = c(0,0.01,0.02, 0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1))+
+  ylab("∆ Depth")+
+  xlab("Depth (m)")
+
+names(fresh_snow_SASP)
+
+
+
+```
+
+### Wind (random)
+```{r}
+# wind <- fresh_snow%>%
+#   filter(site == "SASP")
+#   #filter(month(datetime) %in% c(12,1,2,3,4))
+#   group_by(month(datetime))%>%
+#   summarise(mean = mean(Uavg_MS, na.rm = T))%>%
+#   rename(month = 1)
+# 
+# summary(wind)
+# wind
+# 
+# ggplot(wind, aes(x=month, y= mean))+
+#   geom_point()
+
 ```
 
