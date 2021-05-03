@@ -371,9 +371,54 @@ ggplot(RMP_clean%>%filter(month(date) < 8), aes(x=date))+
   scale_y_continuous(name = "Depth (m)",
                      sec.axis = sec_axis(~.*200, name = "Density (kg/m^3)"))+
   xlab(element_blank())
-  
+
 
 ```
+
+### Density DyGraph
+```{r}
+
+RMP_clean_xts <- RMP_clean%>%
+  select(1,8:10)%>%
+  xts(., order.by = .$date)
+  
+dygraph(RMP_clean_xts)
+
+RMP_density <- RMP_clean%>%
+  select(1, 8:10)%>%
+  mutate(dens_diff = density - lag(density),
+         dens_diff = ifelse(is.na(dens_diff), 0, dens_diff))%>%
+  mutate(density = ifelse(month(date) > 8 & density > 298, 219, density))
+
+RMP_clean_xts2 <- RMP_density%>%
+  select(1:4)%>%
+  xts(., order.by = .$date)
+
+dygraph(RMP_clean_xts2)
+
+rep_dens_value <- RMP_density%>%
+  filter(density < 300)%>%
+  filter(month(date) > 8)%>%
+  filter(density > 0)%>%
+  summarize(mean = mean(density))
+rep_dens_value
+
+ggplot(RMP_density%>%filter( month(date) > 8), aes(x=date))+
+  geom_line(aes(y=ds_m), color = "blue")+
+  geom_line(aes(y=density/200), color = "black")+
+  facet_wrap(~year(date), scales ="free_x")+
+  theme_bw()+
+  theme(axis.title.y.left = element_text(colour="blue", 
+                                         size = 17.5, 
+                                         family = "Times New Roman"),
+        axis.text.y.left = element_text(colour="blue"),
+        text = element_text(size = 17.5, family = "Times New Roman"))+
+  scale_y_continuous(name = "Depth (m)",
+                     sec.axis = sec_axis(~.*200, name = "Density (kg/m^3)"))+
+  xlab(element_blank())
+
+```
+
 
 ### Depth difference Bins
 
@@ -415,6 +460,53 @@ depth_diff_function("-10°C to -3°C")
 depth_diff_function("<-10°C")
 
 ```
+
+
+### Both Bins
+```{r}
+
+fresh_snow_allbins <- fresh_snow_SASP%>%
+    mutate(depth_diff = as.numeric(depth_diff))%>%
+    mutate(depth_diff = round(depth_diff, digits = 2))%>%
+    mutate(depth_diff_bin = ifelse(depth_diff >= 0.04, ">0.04m", 
+                            ifelse(depth_diff == 0.03, "0.03m", 
+                            ifelse(depth_diff == 0.02, "0.02m", 
+                            ifelse(depth_diff == 0.01, "0.01m", NA)))))%>%
+    rename(PreAlbedo = alb_tminus1)
+
+fresh_snow_allbins$depth_diff_bin <- factor(fresh_snow_allbins$depth_diff_bin, levels = c(">0.04m", "0.03m", "0.02m", "0.01m"))
+
+fresh_snow_allbins$temp_cat <- factor(fresh_snow_allbins$temp_cat, levels = c("<-10°C", "-10°C to -3°C", "-3°C to 3°C",">3°C" ))
+
+ggplot(fresh_snow_allbins, aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = PreAlbedo, shape = site))+
+  theme_bw()+
+  facet_grid(depth_diff_bin~temp_cat)+
+  scale_color_gradient(low = "black", high = "snow2")+
+  ylim(c(0,1))+
+  labs(x= "Depth (m)", y="Broadband Albedo")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
+
+```
+
+### Density with all Bins
+```{r}
+
+fresh_snow_dens <- fresh_snow_allbins%>%
+  merge(RMP_density, by = "date")
+
+ggplot(fresh_snow_dens, aes(x=density, y=alb_unfilt))+
+  geom_point(aes(color = PreAlbedo, shape = site))+
+  theme_bw()+
+  facet_grid(depth_diff_bin~temp_cat)+
+  scale_color_gradient(low = "black", high = "snow2")+
+  ylim(c(0,1))+
+  labs(x= "Underlying Density (kg/m^3)", y="Fresh Snow Albedo")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
+
+
+```
+
 
 
 ### Wind (random)
