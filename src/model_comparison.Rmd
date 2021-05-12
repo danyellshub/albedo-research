@@ -748,10 +748,20 @@ ggplot(sy2008%>%filter(hour == 12)%>%rename("Site" = site), aes(x=depth_m))+
   geom_point(aes(y = alb_unfilt, shape = Site, color = DOSY), size =2)+
   scale_shape_manual(values = c(1,4))+
   labs(x="Depth (m)", y = "Broadband Albedo")+
-  scale_color_gradient2(low = "gray10", mid = "snow3", high = "gray10", midpoint = 201)+
+  scale_color_gradientn(colours = rainbow(6))+
   theme_bw()+
   theme(text = element_text(size = 17.5, family = "Times New Roman"))+
   ylim(c(0,1))
+
+ggplot(sasp_sbsp_long%>%filter(hour == 12 & !SY == "SY2005" & alb_unfilt < 0.97)%>%rename("Site" = site), aes(x=depth_m))+
+  geom_point(aes(y = alb_unfilt, shape = Site, color = DOSY), size =2)+
+  scale_shape_manual(values = c(1,4))+
+  labs(x="Depth (m)", y = "Broadband Albedo")+
+  scale_color_gradientn(colours = rainbow(6))+
+  theme_bw()+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  ylim(c(0,1))+
+  facet_wrap(~SY)
 
 ```
 

@@ -35,6 +35,118 @@ load(file = "data/sasp_sbsp_long.Rdata")
 
 ```
 
+### RMP Density
+
+```{r}
+#list.files("data/")
+load("data/red_mtn_pass.Rdata")
+
+# red_mtn_pass <- grabNRCS.data(network = 'SNTL', site_id  = '713',
+#                                timescale = 'daily',
+#                                  DayBgn = '2005-09-01', DayEnd = '2014-08-31')
+# 
+# save(red_mtn_pass, file = "data/red_mtn_pass.Rdata")
+
+RMP_clean <- red_mtn_pass%>%
+  select(1:4,6:8)%>%
+  rename(date =1, Tavg_F = 2, Tmax_F = 3, Tmin_F = 4, Precip_in = 5, Ds_in = 6, SWE_in = 7)%>%
+  mutate(date = ymd(date),
+         ds_m = Ds_in/39.3)%>%
+  filter(ds_m < 4)%>%
+  mutate(swe_mm = SWE_in*25.4,
+         density = ifelse(ds_m >0 & swe_mm >0, swe_mm/ds_m, 0))%>%
+  filter(density < 500)
+
+ggplot(RMP_clean%>%filter(month(date) < 8), aes(x=date))+
+  geom_line(aes(y=ds_m), color = "blue")+
+  geom_line(aes(y=density/200), color = "black")+
+  facet_wrap(~year(date), scales ="free_x")+
+  theme_bw()+
+  theme(axis.title.y.left = element_text(colour="blue", 
+                                         size = 17.5, 
+                                         family = "Times New Roman"),
+        axis.text.y.left = element_text(colour="blue"),
+        text = element_text(size = 17.5, family = "Times New Roman"))+
+  scale_y_continuous(name = "Depth (m)",
+                     sec.axis = sec_axis(~.*200, name = "Density (kg/m^3)"))+
+  xlab(element_blank())
+
+
+```
+
+### Density DyGraph
+```{r}
+
+RMP_clean_xts <- RMP_clean%>%
+  select(1,8:10)%>%
+  xts(., order.by = .$date)
+  
+dygraph(RMP_clean_xts)
+
+RMP_density <- RMP_clean%>%
+  select(1, 8:10)%>%
+  mutate(dens_diff = density - lag(density),
+         dens_diff = ifelse(is.na(dens_diff), 0, dens_diff))%>%
+  mutate(density = ifelse(month(date) > 8 & density > 298, 219, density))
+
+RMP_clean_xts2 <- RMP_density%>%
+  select(1:4)%>%
+  xts(., order.by = .$date)
+
+dygraph(RMP_clean_xts2)
+
+rep_dens_value <- RMP_density%>%
+  filter(density < 300)%>%
+  filter(month(date) > 8)%>%
+  filter(density > 0)%>%
+  summarize(mean = mean(density))
+rep_dens_value
+
+ggplot(RMP_density, aes(x=date))+
+  geom_line(aes(y=ds_m), color = "blue")+
+  geom_line(aes(y=density/200), color = "black")+
+  facet_wrap(~year(date), scales ="free_x")+
+  theme_bw()+
+  theme(axis.title.y.left = element_text(colour="blue", 
+                                         size = 17.5, 
+                                         family = "Times New Roman"),
+        axis.text.y.left = element_text(colour="blue"),
+        text = element_text(size = 17.5, family = "Times New Roman"))+
+  scale_y_continuous(name = "Depth (m)",
+                     sec.axis = sec_axis(~.*200, name = "Density (kg/m^3)"))+
+  xlab(element_blank())
+
+```
+
+### SBB with RMP Density Improvement
+
+```{r}
+
+sasp_dens <- sasp_sbsp_long%>%
+  filter(site == "SASP")%>%
+  merge(., RMP_density, by = "date")%>%
+  mutate(density = ifelse(depth_m == 0, 0, density),
+         swe_mm = ifelse(depth_m == 0, 0, swe_mm))
+
+sbsp_dens <- sasp_sbsp_long%>%
+  filter(site == "SBSP")%>%
+  merge(., RMP_density, by = "date")%>%
+  mutate(density = ifelse(depth_m == 0, 0, density),
+         swe_mm = ifelse(depth_m == 0, 0, swe_mm))
+  mutate(density = ifelse(DOSY > 250 & swe_mm/100 < depth_m, 250, density),
+         swe_mm = ifelse(DOSY > 250 & swe_mm/100 < depth_m, density*depth_m, swe_mm))
+
+
+ggplot(sbsp_dens%>%filter(DOSY>200 & DOSY <305), aes(x=DOSY))+
+  geom_point(aes(y=depth_m))+
+  geom_point(aes(y=density/100), color = "blue3")+
+  geom_point(aes(y=swe_mm/100), color = "red3")+
+  facet_wrap(~SY)
+
+
+```
+
+
 ### Fresh Snow Density
 
 ```{r}
@@ -253,6 +365,7 @@ Clustering Attempt
 ```{r}
 names(fresh_snow_SASP)
 cluster_date <- fresh_snow_SASP %>%
+  filter(hour %in% c(10,11,12,13,14))%>%
   select(alb_unfilt, temp_tminus1)
 head(cluster_date)
 cls <- kmeans(x=cluster_date, centers = 4)
@@ -260,6 +373,11 @@ cluster_date$cluster <- as.character(cls$cluster)
 head(cluster_date)
 head(cls$centers)
 
+stats_temp<-cluster_date%>%
+  group_by(cluster)%>%
+  summarize(min = min(temp_tminus1),
+            max = max(temp_tminus1))
+stats_temp
   
 ggplot()+
   geom_point(data = cluster_date, 
@@ -336,89 +454,6 @@ ggplot(fresh_snow_SASP%>%filter(depth_diff < 0.1)%>%rename(Albedo = alb_unfilt, 
 
 ```
 
-### RMP Density
-
-```{r}
-#list.files("data/")
-load("data/red_mtn_pass.Rdata")
-
-# red_mtn_pass <- grabNRCS.data(network = 'SNTL', site_id  = '713',
-#                                timescale = 'daily',
-#                                  DayBgn = '2005-09-01', DayEnd = '2014-08-31')
-# 
-# save(red_mtn_pass, file = "data/red_mtn_pass.Rdata")
-
-RMP_clean <- red_mtn_pass%>%
-  select(1:4,6:8)%>%
-  rename(date =1, Tavg_F = 2, Tmax_F = 3, Tmin_F = 4, Precip_in = 5, Ds_in = 6, SWE_in = 7)%>%
-  mutate(date = ymd(date),
-         ds_m = Ds_in/39.3)%>%
-  filter(ds_m < 4)%>%
-  mutate(swe_mm = SWE_in*25.4,
-         density = ifelse(ds_m >0 & swe_mm >0, swe_mm/ds_m, 0))%>%
-  filter(density < 500)
-
-ggplot(RMP_clean%>%filter(month(date) < 8), aes(x=date))+
-  geom_line(aes(y=ds_m), color = "blue")+
-  geom_line(aes(y=density/200), color = "black")+
-  facet_wrap(~year(date), scales ="free_x")+
-  theme_bw()+
-  theme(axis.title.y.left = element_text(colour="blue", 
-                                         size = 17.5, 
-                                         family = "Times New Roman"),
-        axis.text.y.left = element_text(colour="blue"),
-        text = element_text(size = 17.5, family = "Times New Roman"))+
-  scale_y_continuous(name = "Depth (m)",
-                     sec.axis = sec_axis(~.*200, name = "Density (kg/m^3)"))+
-  xlab(element_blank())
-
-
-```
-
-### Density DyGraph
-```{r}
-
-RMP_clean_xts <- RMP_clean%>%
-  select(1,8:10)%>%
-  xts(., order.by = .$date)
-  
-dygraph(RMP_clean_xts)
-
-RMP_density <- RMP_clean%>%
-  select(1, 8:10)%>%
-  mutate(dens_diff = density - lag(density),
-         dens_diff = ifelse(is.na(dens_diff), 0, dens_diff))%>%
-  mutate(density = ifelse(month(date) > 8 & density > 298, 219, density))
-
-RMP_clean_xts2 <- RMP_density%>%
-  select(1:4)%>%
-  xts(., order.by = .$date)
-
-dygraph(RMP_clean_xts2)
-
-rep_dens_value <- RMP_density%>%
-  filter(density < 300)%>%
-  filter(month(date) > 8)%>%
-  filter(density > 0)%>%
-  summarize(mean = mean(density))
-rep_dens_value
-
-ggplot(RMP_density%>%filter( month(date) > 8), aes(x=date))+
-  geom_line(aes(y=ds_m), color = "blue")+
-  geom_line(aes(y=density/200), color = "black")+
-  facet_wrap(~year(date), scales ="free_x")+
-  theme_bw()+
-  theme(axis.title.y.left = element_text(colour="blue", 
-                                         size = 17.5, 
-                                         family = "Times New Roman"),
-        axis.text.y.left = element_text(colour="blue"),
-        text = element_text(size = 17.5, family = "Times New Roman"))+
-  scale_y_continuous(name = "Depth (m)",
-                     sec.axis = sec_axis(~.*200, name = "Density (kg/m^3)"))+
-  xlab(element_blank())
-
-```
-
 
 ### Depth difference Bins
 
@@ -478,7 +513,7 @@ fresh_snow_allbins$depth_diff_bin <- factor(fresh_snow_allbins$depth_diff_bin, l
 
 fresh_snow_allbins$temp_cat <- factor(fresh_snow_allbins$temp_cat, levels = c("<-10°C", "-10°C to -3°C", "-3°C to 3°C",">3°C" ))
 
-ggplot(fresh_snow_allbins, aes(x=depth_m, y=alb_unfilt))+
+ggplot(fresh_snow_allbins%>%filter(hour%in%c(10,11,12,13,14)), aes(x=depth_m, y=alb_unfilt))+
   geom_point(aes(color = PreAlbedo, shape = site))+
   theme_bw()+
   facet_grid(depth_diff_bin~temp_cat)+
@@ -487,6 +522,33 @@ ggplot(fresh_snow_allbins, aes(x=depth_m, y=alb_unfilt))+
   labs(x= "Depth (m)", y="Broadband Albedo")+
   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
 
+
+
+```
+
+### Larger Depth Bins
+```{r}
+fresh_snow_allbins_2 <- fresh_snow_SASP%>%
+    mutate(depth_diff = as.numeric(depth_diff))%>%
+    mutate(depth_diff = round(depth_diff, digits = 2))%>%
+    mutate(depth_diff_bin = ifelse(depth_diff >= 0.06, ">=0.06m", 
+                            ifelse(depth_diff >= 0.04 & depth_diff < 0.06, "0.04m - <0.06m", 
+                            ifelse(depth_diff >= 0.02 & depth_diff < 0.04, "0.02m - <0.04m", 
+                            ifelse(depth_diff < 0.02, "<0.02m", 0)))))%>%
+    rename(PreAlbedo = alb_tminus1)
+
+fresh_snow_allbins_2$depth_diff_bin <- factor(fresh_snow_allbins_2$depth_diff_bin, levels = c(">=0.06m", "0.04m - <0.06m", "0.02m - <0.04m", "<0.02m"))
+
+fresh_snow_allbins_2$temp_cat <- factor(fresh_snow_allbins$temp_cat, levels = c("<-10°C", "-10°C to -3°C", "-3°C to 3°C",">3°C" ))
+
+ggplot(fresh_snow_allbins_2, aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = PreAlbedo, shape = site))+
+  theme_bw()+
+  facet_grid(depth_diff_bin~temp_cat)+
+  scale_color_gradient(low = "black", high = "snow2")+
+  ylim(c(0,1))+
+  labs(x= "Depth (m)", y="Broadband Albedo")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
 ```
 
 ### Density with all Bins
@@ -495,18 +557,209 @@ ggplot(fresh_snow_allbins, aes(x=depth_m, y=alb_unfilt))+
 fresh_snow_dens <- fresh_snow_allbins%>%
   merge(RMP_density, by = "date")
 
-ggplot(fresh_snow_dens, aes(x=density, y=alb_unfilt))+
-  geom_point(aes(color = PreAlbedo, shape = site))+
+dens_xts <- fresh_snow_dens%>%
+  select(2,16,40,41,42)%>%
+  xts(., order.by = .$datetime)
+dygraph(dens_xts)
+
+names(end_density)
+end_density <- fresh_snow_dens%>%
+  filter(DOSY > 250 & depth_m > 0, density < 500)%>%
+  select(2, 16, 41, 42)
+
+ggplot(end_density, aes(x=datetime))+
+  geom_line(aes(y=depth_m), color = "black")+
+  geom_line(aes(y=swe_mm/100), color = "blue")+
+  facet_wrap(~year(datetime),scales = "free_x")
+
+ggplot(fresh_snow_dens%>%filter(density >0 & hour %in% c(10,11,12,13,14)), aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = density, shape = site))+
   theme_bw()+
   facet_grid(depth_diff_bin~temp_cat)+
-  scale_color_gradient(low = "black", high = "snow2")+
+  scale_color_gradient(low = "snow2", high = "black")+
   ylim(c(0,1))+
-  labs(x= "Underlying Density (kg/m^3)", y="Fresh Snow Albedo")+
+  labs(x= "Depth (m)", y="Fresh Snow Albedo")+
   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
+```
+
+### Bin Stats
+```{r}
+stats_depth_temp <- fresh_snow_dens%>%
+  group_by(temp_cat, depth_diff_bin)%>%
+  summarize(min = min(alb_unfilt),
+            mean = mean(alb_unfilt),
+            max = max(alb_unfilt))
+
+stats_depth_temp
+
+```
+
+### 16 bins to 4
+# Coldest
+```{r}
+# "<-10°C", "-10°C to -3°C", "-3°C to 3°C",">3°C" 
+# ">0.04m", "0.03m", "0.02m", "0.01m"
+
+cold_deep <- fresh_snow_dens%>%
+  filter(temp_cat %in% c("<-10°C", "-10°C to -3°C"))%>%
+  filter(depth_diff_bin %in% c(">0.04m", "0.03m"))%>%
+  filter(hour %in% c(10,11,12,13,14))
+
+mean(cold_deep$alb_unfilt)
+
+ggplot(cold_deep, aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = PreAlbedo, shape = site), size =2)+
+  theme_bw()+
+  scale_color_gradient(low = "black", high = "white", limits = c(0.5,1))+
+  ylim(c(0.5,1))+
+  labs(x= "Depth (m)", y="Fresh Snow Albedo", color = "Albedo (t-1)", shape = "Site", title = "Cold (<-3°C) & Major Accumulation (>0.03 m) ")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  geom_hline(yintercept = 0.88)
+
+ggscatter(cold_deep,
+          x = "depth_m", 
+          y = "alb_unfilt", add = "reg.line")+
+  stat_cor(label.x = 1, label.y = 0.6) +
+  stat_regline_equation(label.x = 1, label.y = 0.55) + 
+  labs(x='Depth_m (m)', y= 'Fresh Snow Albedo')+
+  theme_linedraw()+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))
+
+
+# ggplot(cold_deep, aes(x=depth_m, y=alb_unfilt))+
+#   geom_point(aes(color = density, shape = site))+
+#   theme_bw()+
+#   scale_color_gradient(low = "white", high = "black", limits = c(100,500))+
+#   ylim(c(0.5,1))+
+#   labs(x= "Depth (m)", y="Fresh Snow Albedo", color = "Density", shape = "Site")+
+#   theme(text = element_text(size = 17.5, family = "Times New Roman"))
+# ggplot(cold_deep, aes(x=PreAlbedo, y=alb_unfilt))+
+#   geom_point(aes(color = depth_m, shape = site), size =2)+
+#   theme_bw()+
+#   scale_color_gradient(low = "black", high = "white", limits = c(0,3))+
+#   ylim(c(0.5,1))+
+#   labs(x= "Albedo (t-1)", y="Fresh Snow Albedo", color = "Depth (m)", shape = "Site")+
+#   theme(text = element_text(size = 17.5, family = "Times New Roman"))
 
 
 ```
 
+```{r}
+# "<-10°C", "-10°C to -3°C", "-3°C to 3°C",">3°C" 
+# ">0.04m", "0.03m", "0.02m", "0.01m"
+
+cold_shallow <- fresh_snow_dens%>%
+  filter(Tavg_C <= -3)%>%
+  filter(depth_diff_bin %in% c("0.02m", "0.01m"))%>%
+  filter(hour %in% c(10,11,12,13,14))
+
+mean(cold_shallow$alb_unfilt)
+
+ggplot(cold_shallow, aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = PreAlbedo, shape = site), size =2)+
+  theme_bw()+
+  scale_color_gradient(low = "black", high = "white", limits = c(0,1))+
+  ylim(c(0,1))+
+  labs(x= "Depth (m)", y="Fresh Snow Albedo", color = "Albedo (t-1)", shape = "Site", title = "Cold (<-3°C) & Minor Accumulation (<=0.03 m) ")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  geom_hline(yintercept = 0.86)
+
+ggscatter(cold_shallow,
+          x = "depth_m", 
+          y = "alb_unfilt", add = "reg.line")+
+  stat_cor(label.x = 1.75, label.y = 0.5) +
+  stat_regline_equation(label.x = 1.75, label.y = 0.45) + 
+  labs(x='Depth_m (m)', y= 'Fresh Snow Albedo')+
+  theme_linedraw()+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))
+```
+
+# Warmest
+```{r}
+# "<-10°C", "-10°C to -3°C", "-3°C to 3°C",">3°C" 
+# ">0.04m", "0.03m", "0.02m", "0.01m"
+
+warm_deep <- fresh_snow_dens%>%
+  filter(temp_cat %in% c("-3°C to 3°C",">3°C"))%>%
+  filter(depth_diff_bin %in% c(">0.04m", "0.03m"))%>%
+  filter(hour %in% c(10,11,12,13,14))
+
+mean(warm_deep$alb_unfilt)
+
+ggplot(warm_deep, aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = PreAlbedo, shape = site), size =2)+
+  theme_bw()+
+  scale_color_gradient(low = "black", high = "white", limits = c(0,1))+
+  ylim(c(0.2,1))+
+  labs(x= "Depth (m)", y="Fresh Snow Albedo", color = "Albedo (t-1)", shape = "Site",title = "Warm (>-3°C) & Major Accumulation (>0.03 m)")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  geom_hline(yintercept = 0.80)
+
+ggscatter(warm_deep,
+          x = "depth_m", 
+          y = "alb_unfilt", add = "reg.line")+
+  stat_cor(label.x = 1.5, label.y = 0.5) +
+  stat_regline_equation(label.x = 1.5, label.y = 0.45) + 
+  labs(x='Depth_m (m)', y= 'Fresh Snow Albedo')+
+  theme_linedraw()+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))
+
+```
+
+```{r}
+# "<-10°C", "-10°C to -3°C", "-3°C to 3°C",">3°C" 
+# ">0.04m", "0.03m", "0.02m", "0.01m"
+
+warm_shallow <- fresh_snow_dens%>%
+  filter(temp_cat %in% c("-3°C to 3°C",">3°C"))%>%
+  filter(depth_diff_bin %in% c("0.02m", "0.01m"))%>%
+  filter(hour %in% c(10,11,12,13,14))
+
+mean(warm_shallow$alb_unfilt)
+
+ggplot(warm_shallow, aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = PreAlbedo, shape = site), size =2)+
+  theme_bw()+
+  scale_color_gradient(low = "black", high = "white", limits = c(0,1))+
+  ylim(c(0,1))+
+  labs(x= "Depth (m)", y="Fresh Snow Albedo", color = "Albedo (t-1)", shape = "Site",title = "Warm (>-3°C) & Minor Accumulation (<=0.03 m)")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  geom_hline(yintercept = 0.74)
+
+ggscatter(warm_shallow,
+          x = "depth_m", 
+          y = "alb_unfilt", add = "reg.line")+
+  stat_cor(label.x = 1.5, label.y = 0.3) +
+  stat_regline_equation(label.x = 1.5, label.y = 0.25) + 
+  labs(x='Depth_m (m)', y= 'Fresh Snow Albedo')+
+  theme_linedraw()+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))
+```
+
+### Ground Albedo (random)
+```{r}
+
+ground_alb <- sasp_sbsp_long%>%
+  filter(depth_m == 0)%>%
+  filter(alb_unfilt > 0.1 & alb_unfilt < 0.97)### the rest of the code describes avgs. per site
+  filter(alb_unfilt < 0.325)%>%
+  group_by(site)%>%
+  summarise(mean = mean(alb_unfilt))
+
+ground_alb
+##SASP = 0.189
+##SBSP = 0.207
+  
+
+ggplot(ground_alb, aes(x=alb_unfilt))+
+  geom_histogram(aes(color = site, fill = site),
+                 position = "identity", bins = 25, alpha = 0.3)+
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))+
+  scale_fill_manual(values = c("#00AFBB", "#E7B800"))+
+  theme_bw()
+
+
+```
 
 
 ### Wind (random)
@@ -523,6 +776,608 @@ ggplot(fresh_snow_dens, aes(x=density, y=alb_unfilt))+
 # 
 # ggplot(wind, aes(x=month, y= mean))+
 #   geom_point()
+
+```
+
+### 3 Hour Timescale
+
+```{r}
+
+three_hour <- sasp_sbsp_long%>%
+  filter(hour %in% c(9,12,15))%>%
+  filter(!SY == "SY2005")%>%
+  mutate(depth_diff = depth_m-lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0, depth_diff),
+         alb_diff = alb_unfilt - lag(alb_unfilt),
+         alb_diff = ifelse(is.na(alb_diff), 0, alb_diff))%>%
+  filter(alb_diff > 0 & depth_diff > 0)
+
+
+ggplot(three_hour, aes(x=Tavg_C, y=alb_unfilt))+
+  geom_point(aes(color = depth_m))
+hist(three_hour$depth_diff)
+
+three_hour_binned <- three_hour%>%
+   mutate(depth_diff = as.numeric(depth_diff))%>%
+   mutate(depth_diff = round(depth_diff, digits = 2))%>%
+   mutate(depth_diff_bin = ifelse(depth_diff >= 0.06, ">=0.06m", 
+                            ifelse(depth_diff >= 0.04 & depth_diff < 0.06, "0.04m - <0.06m", 
+                            ifelse(depth_diff >= 0.02 & depth_diff < 0.04, "0.02m - <0.04m", 
+                            ifelse(depth_diff < 0.02, "<0.02m", 0)))))%>%
+  mutate(alb_tminus1 = alb_unfilt - alb_diff,
+         temp_tminus1 = lag(Tavg_C))%>%
+  mutate(temp_cat = ifelse(temp_tminus1 > 3, ">3°C", 
+                           ifelse(temp_tminus1 < 3 & temp_tminus1 > -3, "-3°C to 3°C",
+                                  ifelse(temp_tminus1 < -3 & temp_tminus1 > -10, "-10°C to -3°C", "<-10°C"))))%>%
+  filter(!is.na(temp_cat))
+  
+three_hour_binned$depth_diff_bin <- factor(three_hour_binned$depth_diff_bin, levels = c(">=0.06m", "0.04m - <0.06m", "0.02m - <0.04m", "<0.02m"))
+
+three_hour_binned$temp_cat <- factor(three_hour_binned$temp_cat, levels = c("<-10°C", "-10°C to -3°C", "-3°C to 3°C",">3°C" ))
+
+ggplot(three_hour_binned, aes(x=depth_m, y=alb_unfilt))+
+  geom_point(aes(color = alb_tminus1, shape = site))+
+  theme_bw()+
+  facet_grid(depth_diff_bin~temp_cat)+
+  scale_color_gradient(low = "black", high = "snow2")+
+  ylim(c(0,1))+
+  labs(x= "Depth (m)", y="Broadband Albedo")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())
+
+```
+
+### Linear Model Attempt
+
+```{r}
+lm_cold_deep <- lm(data = cold_deep, alb_unfilt ~ depth_m + depth_diff)
+summary(lm_cold_deep)
+cor(cold_deep$depth_m, cold_deep$density, method = "kendall")
+confint(lm_cold_deep)
+plot(lm_cold_deep)
+
+lm_cold_shallow <- lm(data = cold_shallow, alb_unfilt ~ depth_m + depth_diff)
+summary(lm_cold_shallow)
+confint(lm_cold_shallow)
+plot(lm_cold_shallow)
+
+lm_warm_deep <- lm(data = warm_deep, alb_unfilt ~ depth_m + depth_diff)
+summary(lm_warm_deep)
+confint(lm_warm_deep)
+
+lm_warm_shallow <- lm(data = warm_shallow, alb_unfilt ~ depth_m + depth_diff)
+summary(lm_warm_shallow)
+confint(lm_warm_shallow)
+
+```
+
+
+### Cold
+```{r}
+
+cold_fresh <- fresh_snow_dens%>%
+  filter(Tavg_C < -3)%>%
+  filter(hour %in% c(10,11,12,13,14))
+
+lm_cold <- lm(data = cold_fresh, alb_unfilt ~ depth_diff + depth_m)
+lm_cold_log <- lm(data = cold_fresh, alb_unfilt ~ depth_diff + log(depth_m))
+summary(lm_cold)
+summary(lm_cold_log)
+plot(lm_cold)
+
+ggplot(cold_fresh%>%filter(depth_diff>0.01), aes(x=depth_diff, y=alb_unfilt, color = depth_m))+
+  geom_point()+
+  stat_smooth(method = "lm", formula = y~log(x))
+
+
+ggplot(cold_fresh%>%filter(depth_diff <= 0.03 & depth_diff > 0.01), aes(x=depth_m, y=alb_unfilt, color = depth_diff))+
+  geom_point(aes(shape = site), size = 1)+
+  scale_color_continuous(low = "blue", high = "red")+
+  stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+  ylim(c(0,1))+
+  theme_bw()+
+  labs(x="Depth (m)", y= "Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+ggplot(cold_fresh%>%filter(depth_diff > 0.03 & depth_diff <0.2), aes(x=depth_m, y=alb_unfilt, color = PreAlbedo))+
+  geom_point(aes(shape = site), size = 1)+
+  scale_color_gradient(low = "red", high = "black")+
+  stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+  ylim(c(0,1))+
+  theme_bw()+
+  labs(x="Depth (m)", y= "Fresh Snow Albedo", color = "PreAlbedo", shape = "Site")
+
+ggplot(cold_fresh%>%filter(depth_diff <0.2&depth_diff>0.01), aes(x=depth_m, y=alb_unfilt, color = depth_diff))+
+  geom_point(aes(shape = site), size = 1)+
+  scale_color_gradient2(low = "blue", mid = "red", high = "black", midpoint = 0.1)+
+  stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+  ylim(c(0,1))+
+  theme_bw()+
+  labs(x="Depth (m)", y= "Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+
+# ggplot(cold_deep, aes(x=depth_diff, y=alb_unfilt, color = depth_m))+
+#   geom_point()+
+#   stat_smooth(method = "lm", formula = y~log(x))
+# ggplot(cold_shallow, aes(x=depth_diff, y=alb_unfilt, color = depth_m))+
+#   geom_point()+
+#   stat_smooth(method = "lm", formula = y~log(x))
+
+
+```
+
+### Cold Depth Difference
+```{r}
+cold_deep2 <- cold_fresh%>%
+  filter(depth_diff > 0.03)
+lm_cold_deep_2 <- lm(data = cold_deep2, alb_unfilt ~ log(depth_m))
+summary(lm_cold_deep_2)
+coef(lm_cold_deep_2)
+confint(lm_cold_deep_2)
+summary(lm_cold_deep_2)$adj.r.squared
+#y =0.897 + 0.004*log(depth_m)
+#y = 0.892 to 0.90
+#x = -0.003 - 0.01
+
+cold_shallow2 <- cold_fresh%>%
+  filter(depth_diff <= 0.03)
+lm_cold_shallow_2 <- lm(data = cold_shallow2, alb_unfilt ~ log(depth_m))
+summary(lm_cold_shallow_2)
+coef(lm_cold_shallow_2)
+confint(lm_cold_shallow_2)
+summary(lm_cold_shallow_2)$r.squared
+#y = 0.87 + 0.02*log(depth_m)
+#y = 0.878-874
+#x = 0.0177 - 0.257
+
+lm_cold_fresh <- lm(data = cold_fresh, alb_unfilt ~ log(depth_m))
+summary(lm_cold_fresh)
+coef(lm_cold_fresh)
+confint(lm_cold_fresh)
+summary(lm_cold_fresh)$r.squared
+#y = 0.87 + 0.02*log(depth_m)
+#y = 0.871 to 0.877
+#x = 0.0166 to 0.024
+```
+
+### Warm
+
+```{r}
+
+warm_fresh <- fresh_snow_dens%>%
+  filter(Tavg_C > -3)
+
+ggplot(warm_fresh, aes(x=depth_diff, y=alb_unfilt, color = depth_m))+
+  geom_point()+
+  stat_smooth(method = "lm", formula = y~log(x))
+ggplot(warm_fresh, aes(x=depth_m, y=alb_unfilt, color = depth_diff))+
+  geom_point()+
+  stat_smooth(method = "lm", formula = y~log(x))
+
+ggplot(warm_fresh%>%filter(depth_diff <= 0.03), aes(x=depth_m, y=alb_unfilt, color = depth_diff))+
+  geom_point(aes(shape = site), size = 1)+
+  scale_color_continuous(low = "blue", high = "red")+
+  stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+  ylim(c(0,1))+
+  theme_bw()+
+  labs(x="Depth (m)", y= "Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+ggplot(warm_fresh%>%filter(depth_diff > 0.03 & depth_diff <0.2), aes(x=depth_m, y=alb_unfilt, color = depth_diff))+
+  geom_point(aes(shape = site), size = 1)+
+  scale_color_gradient(low = "red", high = "black")+
+  stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+  ylim(c(0,1))+
+  theme_bw()+
+  labs(x="Depth (m)", y= "Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+ggplot(warm_fresh%>%filter(depth_diff <0.2), aes(x=depth_m, y=alb_unfilt, color = density))+
+  geom_point(aes(shape = site), size = 1)+
+  scale_color_gradient2(low = "blue", mid = "red", high = "black", midpoint = 200)+
+  stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+  ylim(c(0,1))+
+  theme_bw()+
+  labs(x="Depth (m)", y= "Fresh Snow Albedo", color = "Density (kg/m^3)", shape = "Site")
+
+# ggplot(warm_fresh%>%filter(depth_diff <0.2 & density >0), aes(x=density, y=alb_unfilt, color = depth_m))+
+#   geom_point(aes(shape = site), size = 1)+
+#   scale_color_gradient2(low = "blue", mid = "red", high = "black", midpoint = 1)+
+#   stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+#   ylim(c(0,1))+
+#   theme_bw()+
+#   labs(x="Density (kg/m^3))", y= "Fresh Snow Albedo", color = "Depth (m)", shape = "Site")
+
+```
+
+### Warm Depth Difference
+
+```{r}
+
+warm_deep_2 <- warm_fresh%>%
+    filter(depth_diff > 0.03)
+lm_warm_deep2 <- lm(data = warm_deep_2, alb_unfilt ~ log(depth_m))
+summary(lm_warm_deep2)
+coef(lm_warm_deep2)
+confint(lm_warm_deep2)
+summary(lm_warm_deep2)$r.squared
+# y = 0.8549 + 0.09*log(depth_m)
+# y = 0.805 to 0.904
+# x = 0.057 to 0.123
+
+
+warm_shallow_2 <- warm_fresh%>%
+    filter(depth_diff <= 0.03)
+lm_warm_shallow2 <- lm(data = warm_shallow_2, alb_unfilt ~ log(depth_m))
+summary(lm_warm_shallow2)
+coef(lm_warm_shallow2)
+confint(lm_warm_shallow2)
+summary(lm_warm_shallow2)$r.squared
+# y = 0.77 + 0.07*log(depth_m)
+# y = 0.763 to 0.781
+# x = 0.065 to 0.0767
+
+
+lm_warm <- lm(data = warm_fresh, alb_unfilt ~ log(depth_m))
+summary(lm_warm)
+coef(lm_warm)
+confint(lm_warm)
+summary(lm_warm)$r.squared
+# y = 0.776 + 0.07*log(depth_m)
+# y = 0.767 to 0.785
+# x = 0.066 to 0.0772
+
+```
+
+
+### Three Hour LM
+```{r}
+ggplot(three_hour%>%filter(Tavg_C > -3 & depth_diff < 0.04 & alb_unfilt < 0.98), aes(x=depth_m, y=alb_unfilt, color = depth_diff))+
+  geom_point(aes(shape = site))+
+  stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+  scale_color_gradient(low = "blue", high = "red")+
+  theme_bw()+
+  ylim(c(0,1))+
+  labs(x="Depth (m)", y = "Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+three_shallow <- three_hour%>%
+  filter(depth_diff < 0.04 & Tavg_C > -3)
+three_lm_shallow <- lm(data =three_shallow, alb_unfilt ~ log(depth_m))
+summary(three_lm_shallow)
+confint(three_lm_shallow)
+coef(three_lm_shallow)
+summary(three_lm_shallow)$r.squared
+
+ggplot(three_hour%>%filter(Tavg_C > -3 & depth_diff >= 0.04 & alb_unfilt < 0.98), aes(x=depth_m, y=alb_unfilt, color = depth_diff))+
+  geom_point(aes(shape = site))+
+  stat_smooth(method = "lm", formula = y~log(x), color = "black")+
+  scale_color_gradient(low = "red", high = "black")+
+  theme_bw()+
+  ylim(c(0,1))+
+  labs(x="Depth (m)", y = "Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+three_deep <- three_hour%>%
+  filter(depth_diff <= 0.04 & Tavg_C > -3)
+three_lm_deep <- lm(data = three_deep, alb_unfilt ~ log(depth_m))
+summary(three_lm_deep)
+confint(three_lm_deep)
+coef(three_lm_deep)
+summary(three_lm_deep)$r.squared
+  
+
+
+
+```
+
+
+### Depth Stats
+
+```{r}
+depth_stats <- sasp_sbsp_long%>%
+  group_by(SY, site)%>%
+  filter(!is.na(depth_m))%>%
+  summarize(max = max(depth_m))
+dust_stats <- sasp_sbsp_long%>%
+  group_by(SY)%>%
+  filter(!is.na(dust_event))%>%
+  summarize(max = max(dust_event))
+
+names(sasp_sbsp_long)
+
+sasp_xts <- sasp_sbsp_long%>%
+  filter(site == "SASP")%>%
+  filter(!SY == "SY2005")%>%
+  select(1, 16)%>%
+  filter(!is.na(datetime))%>%
+  filter(depth_m < 4)%>%
+  xts(., order.by = .$datetime)
+dygraph(sasp_xts)
+
+sbsp_xts <- sasp_sbsp_long%>%
+  filter(site == "SBSP")%>%
+  filter(!SY == "SY2005")%>%
+  select(1, 16)%>%
+  filter(!is.na(datetime))%>%
+  filter(depth_m < 4)%>%
+  xts(., order.by = .$datetime)
+dygraph(sbsp_xts)
+
+rmp_xts <- fresh_snow_dens%>%
+  filter(!SY == "SY2005")%>%
+  select(1,40,41)%>%
+  filter(!is.na(is.numeric(.)))
+  xts(., order.by = .$date)
+dygraph(rmp_xts)
+
+```
+
+
+####***Starting New
+
+```{r}
+names(fresh_snow_dens)
+
+frsh_alb <- fresh_snow_dens%>%
+  filter(depth_diff > 0.01 & depth_diff < 0.3)
+ggplot(frsh_alb, aes(x=depth_diff, y=alb_diff))+
+  geom_point(aes(color = PreAlbedo))
+
+onestorm <- sasp_sbsp_long%>%
+  filter(SY == "SY2008" & !is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  filter(site == "SBSP")%>%
+  select(datetime, depth_m, alb_unfilt)%>%
+  xts(., order.by = .$datetime)
+dygraph(onestorm)
+```
+
+
+Apr 9, 2008
+```{r}
+sy2008Apr9 <- sasp_sbsp_long%>%
+  filter(SY == "SY2008" & !is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  filter(date == "2008-04-09")%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
+         alb_diff = alb_unfilt - lag(alb_unfilt), 
+         alb_diff = ifelse(is.na(alb_diff), 0, alb_diff),
+         temp_tminus1 = lag(Tavg_C),
+         temp_tminus1 = ifelse(is.na(temp_tminus1), 0, temp_tminus1))
+
+ggplot(sy2008Apr9%>%filter(depth_diff > -0.9), aes(x=datetime))+
+  geom_col(aes(y=depth_diff*20, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  geom_line(aes(y=alb_unfilt, color = site), size = 1)+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~./20, name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.75,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site",  title= "2008-Apr-09", subtitle = "SASP(~0.9meters), SBSP(~0.3meters)")
+  
+ggplot(sy2008Apr9%>%filter(depth_diff > -0.9), aes(x=datetime))+
+  geom_col(aes(y=depth_diff, fill = site), position = "dodge", alpha = 1)+
+  geom_area(aes(y=alb_diff, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "∆Albedo",
+                     sec.axis = sec_axis(~., name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.5,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site",  title= "2008-Apr-09", subtitle = "SASP(~2.35meters), SBSP(~1.55meters)")
+```
+
+Dec 7 2007
+```{r}
+sy2008Dec7 <- sasp_sbsp_long%>%
+  filter(SY == "SY2008" & !is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  filter(date == "2007-12-07")%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
+         alb_diff = alb_unfilt - lag(alb_unfilt), 
+         alb_diff = ifelse(is.na(alb_diff), 0, alb_diff),
+         temp_tminus1 = lag(Tavg_C),
+         temp_tminus1 = ifelse(is.na(temp_tminus1), 0, temp_tminus1))
+
+ggplot(sy2008Dec7%>%filter(depth_diff > -0.3), aes(x=datetime))+
+  geom_col(aes(y=depth_diff*10, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  geom_line(aes(y=alb_unfilt, color = site), size = 1)+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~./10, name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.75,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site", title= "2007-Dec-07", subtitle = "SASP(~0.9meters), SBSP(~0.3meters)")
+
+ggplot(sy2008Dec7%>%filter(depth_diff > -0.3), aes(x=datetime))+
+  geom_col(aes(y=depth_diff, fill = site), position = "dodge", alpha = 1)+
+  geom_area(aes(y=alb_diff, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "∆Albedo",
+                     sec.axis = sec_axis(~., name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.5,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site",  title= "2007-Dec-07", subtitle = "SASP(~0.9meters), SBSP(~0.3meters)")
+
+```
+
+
+Jan 3 2008
+```{r}
+sy2008Jan3 <- sasp_sbsp_long%>%
+  filter(SY == "SY2008" & !is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  filter(date == "2008-01-03")%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
+         alb_diff = alb_unfilt - lag(alb_unfilt), 
+         alb_diff = ifelse(is.na(alb_diff), 0, alb_diff),
+         temp_tminus1 = lag(Tavg_C),
+         temp_tminus1 = ifelse(is.na(temp_tminus1), 0, temp_tminus1))
+
+ggplot(sy2008Jan3%>%filter(depth_diff > -0.3), aes(x=datetime))+
+  geom_col(aes(y=depth_diff*30, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  geom_line(aes(y=alb_unfilt, color = site), size = 1)+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~./30, name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.8,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site", title= "2008-Jan-03", subtitle = "SASP(~1.1meters), SBSP(~0.3meters)")
+
+ggplot(sy2008Jan3%>%filter(depth_diff > -0.3), aes(x=datetime))+
+  geom_col(aes(y=depth_diff, fill = site), position = "dodge", alpha = 1)+
+  geom_area(aes(y=alb_diff, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "∆Albedo",
+                     sec.axis = sec_axis(~., name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.5,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site",  title= "2008-Jan-03", subtitle = "SASP(~1.1meters), SBSP(~0.3meters)")
+
+
+```
+
+
+Oct 21 2007
+
+```{r}
+sy2007Oct21 <- sasp_sbsp_long%>%
+  filter(SY == "SY2008" & !is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  filter(date == "2007-10-21")%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
+         alb_diff = alb_unfilt - lag(alb_unfilt), 
+         alb_diff = ifelse(is.na(alb_diff), 0, alb_diff),
+         temp_tminus1 = lag(Tavg_C),
+         temp_tminus1 = ifelse(is.na(temp_tminus1), 0, temp_tminus1))
+
+ggplot(sy2007Oct21%>%filter(depth_diff > -0.15), aes(x=datetime))+
+  geom_col(aes(y=depth_diff*30, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  geom_line(aes(y=alb_unfilt, color = site), size = 1)+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~./30, name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.5,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site", title= "2007-Oct-21", subtitle = "SASP(~0.35meters), SBSP(~0.25meters)")
+
+ggplot(sy2007Oct21%>%filter(depth_diff > -0.15), aes(x=datetime))+
+  geom_col(aes(y=depth_diff, fill = site), position = "dodge", alpha = 1)+
+  geom_area(aes(y=alb_diff, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "∆Albedo",
+                     sec.axis = sec_axis(~., name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.5,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site",  title= "2007-Oct-21", subtitle = "SASP(~0.35meters), SBSP(~0.25meters)")
+```
+
+May 1 2008
+```{r}
+
+sy2008May1 <- sasp_sbsp_long%>%
+  filter(SY == "SY2008" & !is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  filter(date == "2008-05-01")%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
+         alb_diff = alb_unfilt - lag(alb_unfilt), 
+         alb_diff = ifelse(is.na(alb_diff), 0, alb_diff),
+         temp_tminus1 = lag(Tavg_C),
+         temp_tminus1 = ifelse(is.na(temp_tminus1), 0, temp_tminus1))
+
+ggplot(sy2008May1%>%filter(depth_diff > -0.15), aes(x=datetime))+
+  geom_col(aes(y=depth_diff*30, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  geom_line(aes(y=alb_unfilt, color = site), size = 1)+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "Albedo",
+                     sec.axis = sec_axis(~./30, name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.5,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site", title= "2008-May-01", subtitle = "SASP(~2.0meters), SBSP(~1.5meters)")
+
+ggplot(sy2008May1%>%filter(depth_diff > -0.15 & alb_diff < 0.4), aes(x=datetime))+
+  geom_col(aes(y=depth_diff, fill = site), position = "dodge", alpha = 1)+
+  geom_area(aes(y=alb_diff, fill = site), position = "dodge", alpha = 0.4)+
+  scale_fill_manual(values = c("red", "blue"))+
+  scale_color_manual(values = c("red", "blue"))+
+  theme_bw()+
+  scale_y_continuous(name = "∆Albedo",
+                     sec.axis = sec_axis(~., name = "∆Depth (m)"))+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.5,0.15))+
+  labs(x="Datetime", color = "Site", fill = "Site",  title=  "2008-May-01", subtitle = "SASP(~2.0meters), SBSP(~1.5meters)")
+```
+
+DepthDiff Attempt
+```{r}
+
+best_hours <- sasp_sbsp_long%>%
+  group_by(site)%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
+         alb_diff = alb_unfilt - lag(alb_unfilt), 
+         alb_diff = ifelse(is.na(alb_diff), 0, alb_diff),
+         temp_tminus1 = lag(Tavg_C),
+         temp_tminus1 = ifelse(is.na(temp_tminus1), 0, temp_tminus1))%>%
+  ungroup()%>%
+  filter(hour %in% c(10,11,12,13,14))%>%
+  filter(!is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  mutate(depth_diff = as.numeric(depth_diff),
+         depth_diff = round(depth_diff, digits =2))%>%
+  filter(depth_diff > -0.2 & depth_diff < 0.2)%>%
+  filter(depth_diff > 0.01)%>%
+  mutate(depth_bin = ifelse(depth_m < 0.2, "Shallow (<0.2m)",
+                            ifelse(depth_m >= 0.2 & depth_m < 0.5, "Mid (0.2-0.5m)",
+                                   "Deep (>0.5m)")))%>%
+         #depth_bin = factor(depth_bin, levels = c("Shallow", "Mid", "Deep")))%>%
+  mutate(temp_bin = ifelse(temp_tminus1 < -10, "Colder (<-10°C)", 
+                           ifelse(temp_tminus1 >= -10 & temp_tminus1 < 3, "Mid (-10° to 3°C)", "Warmer (>3°C)")))%>%
+  mutate(next_filt = ifelse(DOSY > 30 & DOSY < 60 & depth_diff > 0.05 & alb_unfilt < 0.3 & depth_m > 0.1, NA, "OK"))%>%
+  filter(!is.na(next_filt))%>%
+  mutate(depth_diff_bin = ifelse(depth_diff >0.01 & depth_diff <= 0.03, "Light Accum (0.02-0.03m)", "Large Accum (>0.03m)"),
+         depth_diff_bin = factor(depth_diff_bin, levels = c("Light Accum (0.02-0.03m)","Large Accum (>0.03m)")))
+
+ggplot(best_hours, aes(x=depth_diff, y= alb_unfilt))+
+  geom_point(aes(shape = site, color = temp_tminus1))+
+  theme_bw()+
+  ylim(c(0,1))+
+  xlim(0,0.2)+
+  scale_color_gradient2(low = "blue4", mid = "snow2", high = "red4", midpoint = -3)+
+  facet_grid(depth_bin~temp_bin)+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  labs(x="∆Depth (m)", y="Fresh Snow Albedo", color = "Temp°C (t-1)", shape = "Site")
+
+ggplot(best_hours%>%filter(temp_tminus1 < -3), aes(x=temp_tminus1, y= alb_unfilt))+
+  geom_point(aes(shape = site, color = depth_diff))+
+  theme_bw()+
+  ylim(c(0,1))+
+  scale_color_gradient2(low = "blue4", mid = "snow4", high = "red4", midpoint = 0.05)+
+  facet_grid(depth_bin~depth_diff_bin)+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  labs(x="Temp°C (t-1)", y="Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+ggplot(best_hours%>%filter(temp_tminus1 > -3), aes(x=temp_tminus1, y= alb_unfilt))+
+  geom_point(aes(shape = site, color = depth_diff))+
+  theme_bw()+
+  ylim(c(0,1))+
+  scale_color_gradient2(low = "blue4", mid = "snow4", high = "red4", midpoint = 0.05)+
+  facet_grid(depth_bin~depth_diff_bin)+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  labs(x="Temp°C (t-1)", y="Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+oddvalues <- best_hours%>%
+  filter(temp_tminus1 > 3 & alb_unfilt < 0.5)
+## October 2005 and October 2008
+oddvalues_xts <- sasp_sbsp_long%>%  
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff))%>%
+  filter(!is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  filter(site == "SASP")%>%
+  select(datetime, depth_m, alb_unfilt, depth_diff)%>%
+  xts(., order.by = .$datetime)
+dygraph(oddvalues_xts)
+
 
 ```
 
