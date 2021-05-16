@@ -1381,3 +1381,55 @@ dygraph(oddvalues_xts)
 
 ```
 
+### Pattern Figure
+
+```{r}
+
+gen_plot <- sasp_sbsp_long%>%
+  filter(hour == 12 & alb_unfilt < 0.98 & alb_unfilt > 0.15)%>%
+  mutate(filt = ifelse(depth_m == 0 & DOSY > 120 & DOSY < 220, NA, "OK"))%>%
+  filter(!is.na(filt))%>%
+  filter(!is.na(depth_m))%>%
+  group_by(DOSY, site)%>%
+  summarize(mean_d = mean(depth_m),
+            mean_alb = mean(alb_unfilt),
+            max_d = max(depth_m),
+            min_d = min(depth_m),
+            max_alb = max(alb_unfilt),
+            min_alb = min(alb_unfilt))%>%
+  mutate(time = ifelse(DOSY < 90, "Early Events", 
+                  ifelse(DOSY >= 90 & DOSY < 220, "Accumulation", "Melt")))%>%
+  mutate(time = factor(time, levels = c("Early Events", "Accumulation", "Melt")))%>%
+  filter(!DOSY == 344)
+
+ggplot(gen_plot, aes(x=DOSY))+
+  geom_errorbar(aes(ymin=min_alb, ymax =max_alb), color = "gray")+
+  geom_line(aes(y=mean_alb), size = 1.5)+
+  facet_grid(site~time, scales = "free_x")+
+  theme_bw()+
+  labs(y="Broadband Albedo")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  ylim(c(0,1))
+
+ggplot(gen_plot, aes(x=DOSY))+
+  geom_errorbar(aes(ymin=min_d, ymax =max_d), color = "gray")+
+  geom_line(aes(y=mean_d), size = 1.5, color = "steelblue3")+
+  facet_grid(site~time, scales = "free_x")+
+  theme_bw()+
+  labs(y="Depth (m)")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))
+
+ggplot(gen_plot, aes(x=DOSY))+
+  geom_errorbar(aes(ymin=min_d/4, ymax =max_d/4), color = "steelblue3", alpha = 0.5)+
+  geom_line(aes(y=mean_d/4), size = 1.5, color = "steelblue3")+
+  geom_errorbar(aes(ymin=min_alb, ymax =max_alb), color = "black", alpha = 0.5)+
+  geom_line(aes(y=mean_alb), size = 1.5, color = "black")+
+  facet_grid(site~time, scales = "free")+
+  theme_bw()+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"),
+        axis.text.y.right = element_text(colour="steelblue3"),
+        axis.title.y.right = element_text(colour="steelblue3"))+
+  scale_y_continuous(name = "Broadband Albedo",
+                     sec.axis = sec_axis(~.*4, name = "Depth (m)"))
+```
+
