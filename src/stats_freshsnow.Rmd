@@ -1,0 +1,569 @@
+---
+title: "FreshSnowStats"
+author: "Danielle Reimanis"
+date: "5/18/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyverse)
+library(tidyr)
+library(lubridate)
+library(ggthemes)
+library(ggpubr)
+library(ggplot2)
+library(stringr)
+library(purrr)
+library(xts)
+library(dygraphs)
+library(hms)
+library(RNRCS)
+library(hydroGOF)
+
+setwd("~/Desktop/Albedo Analysis/albedo-research")
+
+```
+
+
+```{r}
+
+load(file = "data/sasp_sbsp_long.Rdata")
+load(file = "data/sasp.Rdata")
+load(file = "data/sbsp.Rdata")
+
+```
+
+### Dust Read-In (again)
+```{r}
+dust_files <- list.files('data/Dust_Events', full.names = TRUE)
+
+dust_read_in <- function(file){
+  data_names = str_sub(file, -8,-5)
+  name = paste("WY", data_names, sep = "")
+ df <- read_delim(file = file, delim = " ", col_names=TRUE)%>%
+  mutate(date = mdy(date))%>%
+  mutate_if(is.character, as.numeric)%>%
+  mutate(WY = name)%>%
+  rename("date" =1, "doy"=2,"dust_event"=3)
+return(df)
+}
+
+dust_06_14 <- map_dfr(dust_files, dust_read_in)%>%
+  select(1,3)%>%
+  mutate(dust_event = ifelse(is.na(dust_event), 0, dust_event))
+```
+
+
+### Dust Setup
+```{r}
+sasp_sbsp_long_2 <- sasp_sbsp_long%>%
+  select(1:16,19:26)%>%
+  merge(., dust_06_14, by ="date", all = T)%>%
+  filter(!is.na(date) & !is.na(dust_event))%>%
+  filter(!SY == "SY2005")
+
+# dust_loop_sasp <- sasp_sbsp_long_2%>%
+#   filter(site == "SASP")%>%
+#   filter(SY == "SY2008")
+# sd2 <- dust_loop_sasp$dust_event
+# sd3 <- rep(0, nrow(dust_loop_sasp))
+# for(i in 2:nrow(dust_loop_sasp)){
+#   if(sd2[i] > sd2[i-1]){
+#       sd3[i] = sd3[i-1]+1} else{
+#       sd3[i] = sd3[i-1]}
+# }
+# final_dust <- dust_loop_sasp%>%
+#   mutate(newdust = sd3)
+
+dust_cumulative_sasp <- function(SY2){
+  dust_loop_sasp <- sasp_sbsp_long_2%>%
+    filter(site == "SASP")%>%
+    filter(SY == SY2)
+  sd2 <- dust_loop_sasp$dust_event
+  sd3 <- rep(0, nrow(dust_loop_sasp))
+  for(i in 2:nrow(dust_loop_sasp)){
+    if(sd2[i] > sd2[i-1]){
+      sd3[i] = sd3[i-1]+1} else{
+      sd3[i] = sd3[i-1]}
+    }
+  final_dust <- dust_loop_sasp%>%
+      mutate(newdust = sd3)
+  
+  return(final_dust)
+}
+
+SY <- unique(sasp_sbsp_long_2$SY)
+sasp_dust <- map_dfr(SY, dust_cumulative_sasp)
+
+
+
+dust_cumulative_sbsp <- function(SY2){
+  dust_loop_sbsp <- sasp_sbsp_long_2%>%
+    filter(site == "SBSP")%>%
+    filter(SY == SY2)
+  sd2 <- dust_loop_sbsp$dust_event
+  sd3 <- rep(0, nrow(dust_loop_sbsp))
+  for(i in 2:nrow(dust_loop_sbsp)){
+    if(sd2[i] > sd2[i-1]){
+      sd3[i] = sd3[i-1]+1} else{
+      sd3[i] = sd3[i-1]}
+    }
+  final_dust <- dust_loop_sbsp%>%
+      mutate(newdust = sd3)
+  
+  return(final_dust)
+}
+
+SY <- unique(sasp_sbsp_long_2$SY)
+sbsp_dust <- map_dfr(SY, dust_cumulative_sbsp)
+
+new_df <- rbind(sasp_dust,sbsp_dust)
+
+hist(new_df$alb_unfilt, breaks = 100)
+hist(sasp_sbsp_long_2$alb_unfilt, breaks = 100)
+hist(sasp_sbsp_long$alb_unfilt, breaks = 100)
+hist(stats_setup$alb_unfilt, breaks = 100)
+
+```
+
+### LM by Wavelength (all)
+
+```{r}
+lm_all <- new_df%>%
+  filter(!is.na(alb_unfilt) & alb_unfilt < 0.98 & alb_unfilt > 0.16)%>%
+  filter(!is.na(alb_filt) & alb_filt < 0.98 & alb_filt > 0)%>%
+  filter(!is.na(alb_vis) & alb_vis < 1 & alb_vis > 0)%>%
+  filter(SY %in% c("SY2005", "SY2006", "SY2007", "SY2008", "SY2009", "SY2010", "SY2011"))%>%
+  lm(data = ., alb_unfilt ~ alb_vis + alb_filt)
+
+summary(lm_all)
+confint(lm_all)
+
+all_combined <- new_df%>%
+  filter(!is.na(alb_unfilt) & alb_unfilt < 0.98 & alb_unfilt > 0.16)%>%
+  filter(!is.na(alb_filt) & alb_filt < 0.98 & alb_filt > 0)%>%
+  filter(!is.na(alb_vis) & alb_vis < 1 & alb_vis > 0)%>%
+  mutate(mod_alb = coef(lm_all)[1] + coef(lm_all)[2]*alb_vis + coef(lm_all)[3]*alb_filt)%>%
+  mutate(model_bin = ifelse(datetime < "2011-09-01 11:00:00", "Included", "Not Included"))
+
+ggplot(all_combined %>%filter(mod_alb < 2), aes(x=alb_unfilt, y=mod_alb))+
+  geom_point(aes(color = alb_vis))+
+  geom_abline()+
+  xlim(c(0, 1))+
+  ylim(c(0, max(all_combined$mod_alb)))+
+  theme_bw()+
+  scale_color_gradient(low = "gray20", high = "cyan3")+
+  labs(x="Observed α", y="Modeled α", color = "Observed Vis α")+
+   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.36,0.2))+
+  facet_wrap(~model_bin)
+
+cor(all_combined$alb_unfilt, all_combined$mod_alb, method = "pearson")^2
+NSE(all_combined$alb_unfilt, all_combined$mod_alb)
+
+```
+
+
+
+### Stats Setup
+```{r}
+stats_setup <- new_df%>%
+  filter(!is.na(alb_unfilt) & alb_unfilt < 0.98 & alb_unfilt > 0.16)%>%
+  group_by(site)%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
+         alb_diff = alb_unfilt - lag(alb_unfilt), 
+         alb_diff = ifelse(is.na(alb_diff), 0, alb_diff),
+         alb_tminus1 = alb_unfilt - alb_diff,
+         temp_tminus1 = lag(Tavg_C),
+         temp_tminus1 = ifelse(is.na(temp_tminus1), 0, temp_tminus1),
+         vis_tminus1 = lag(alb_vis),
+         vis_tminus1 = ifelse(is.na(vis_tminus1),0,vis_tminus1),
+         filt_tminus1 = lag(alb_filt),
+         filt_tminus1 = ifelse(is.na(filt_tminus1), 0, filt_tminus1))%>%
+  ungroup()%>%
+  filter(hour %in% c(10,11,12,13,14))%>%
+  mutate(depth_diff = as.numeric(depth_diff),
+         depth_diff = round(depth_diff, digits =2))%>%
+  filter(depth_diff > -0.2 & depth_diff < 0.2)%>%
+  filter(depth_diff > 0.01)%>%
+  filter(alb_diff > 0.01)%>%
+  mutate(esat = 6.112*exp((22.46*Tavg_C)/(272.62 + Tavg_C)),
+         ea = (RH/100) * esat,
+         dewpointT = (log(ea) - 1.810)/(0.0653 - 0.00421*log(ea)))
+
+
+ggplot(stats_setup, aes(x=temp_tminus1, y = alb_unfilt))+
+  geom_point()
+ggplot(stats_setup, aes(x=Tavg_C, y = dewpointT))+
+  geom_point()+
+  geom_abline()
+ggplot(stats_setup, aes(x=Tavg_C, y = alb_tminus1))+
+  geom_point()
+ggplot(stats_setup, aes(x = dewpointT, y= alb_tminus1))+
+  geom_point()
+ggplot(stats_setup, aes(x = Uavg_MS, y= alb_tminus1))+
+  geom_point()
+```
+
+
+### Working Stats
+```{r}
+mltivar_setup <- stats_setup%>%
+  filter(SY %in% c("SY2005", "SY2006", "SY2007", "SY2008", "SY2009", "SY2010", "SY2011"))
+
+str(mltivar_setup)
+names(mltivar_setup)
+
+multivar <- lm(alb_unfilt ~ temp_tminus1 + log(depth_m) + depth_diff + Uavg_MS, data = mltivar_setup)
+summary(multivar)
+head(fitted(multivar))
+vcov(multivar)
+
+multivar2 <- lm(alb_unfilt ~ alb_tminus1 + temp_tminus1 + log(depth_m) + depth_diff, data = mltivar_setup)
+summary(multivar2)
+cor(mltivar_setup$alb_tminus1, mltivar_setup$temp_tminus1, method = "kendall")
+head(fitted(multivar2))
+vcov(multivar2)
+
+multivar3 <- lm(alb_unfilt ~ log(depth_m) + depth_diff + Tavg_C + alb_diff, data = mltivar_setup)
+summary(multivar3)
+
+```
+
+### Plot Stats
+```{r}
+mltivar_mod <- stats_setup%>%
+  mutate(model = coef(multivar)[1] + coef(multivar)[2]*temp_tminus1 + coef(multivar)[3]*log(depth_m) + 
+           coef(multivar)[4]*depth_diff + coef(multivar)[5]*Uavg_MS)%>%
+  mutate(model2 = coef(multivar2)[1] + coef(multivar2)[2]*alb_tminus1 + coef(multivar2)[3]*temp_tminus1 + 
+           coef(multivar2)[4]*log(depth_m)+coef(multivar2)[5]*depth_diff)%>%
+  mutate(model3 = coef(multivar3)[1] + coef(multivar3)[2]*log(depth_m) + coef(multivar3)[3]*depth_diff + coef(multivar3)[4]*Tavg_C + coef(multivar3)[5]*alb_diff)%>%
+  mutate(model_bin = ifelse(datetime < "2011-09-01 11:00:00", "Included", "Not Included"))
+
+ggplot(mltivar_mod, aes(x=alb_unfilt, y=model))+
+  geom_point(aes(color = newdust))+
+  ylim(c(0,max(mltivar_mod$model)))+
+  geom_abline()+
+  xlim(c(0,1))+
+  theme_bw()+
+  labs(x="Observed", y="Modeled")+
+  facet_wrap(~model_bin)
+
+ggplot(mltivar_mod%>%filter(alb_vis < 1), aes(x=alb_unfilt, y=model3))+
+  geom_point(aes(color = newdust))+
+  ylim(c(0,max(mltivar_mod$model3)))+
+  geom_abline()+
+  xlim(c(0,1))+
+  theme_bw()+
+  labs(x="Observed", y="Modeled with Albedo Difference")+
+  facet_wrap(~model_bin)
+
+ggplot(mltivar_mod, aes(x=alb_unfilt, y=model2))+
+  geom_point(aes(color = newdust))+
+  ylim(c(0,max(mltivar_mod$model2)))+
+  geom_abline()+
+  xlim(c(0,1))+
+  theme_bw()+
+  labs(x="Observed", y="Modeled with Albedo (t-1)")+
+  facet_wrap(~model_bin)
+
+
+```
+
+### Splitting Albedos
+
+```{r}
+
+ggplot(stats_setup%>%filter(alb_vis < 1), aes(x=alb_unfilt))+
+  geom_point(aes(y=alb_vis), color = "magenta")+
+  geom_point(aes(y=alb_filt))+
+  ylim(c(0,1))+
+  xlim(c(0,1))+
+  theme_bw()
+
+lm_alb <- mltivar_setup%>%
+  filter(alb_vis < 1)%>%
+  filter(SY %in% c("SY2005", "SY2006", "SY2007", "SY2008", "SY2009", "SY2010", "SY2011"))%>%
+  lm(data = ., alb_unfilt ~ alb_filt + alb_vis)
+summary(lm_alb)
+confint(lm_alb)
+
+spectrumalb <- stats_setup%>%
+  filter(alb_vis < 1)%>%
+  mutate(model_alb = coef(lm_alb)[1] + coef(lm_alb)[2]*alb_filt + coef(lm_alb)[3]*alb_vis)%>%
+  mutate(model_bin = ifelse(datetime < "2011-09-01 11:00:00", "Included", "Not Included"))
+
+ggplot(spectrumalb, aes(x=alb_unfilt, y=model_alb))+
+  geom_point(aes(color = newdust))+
+  geom_abline()+
+  facet_wrap(~model_bin)+
+  theme_bw()+
+  scale_color_gradient(low = "snow3", high = "red4")+
+  labs(x="Observed Albedo", y="Modeled Albedo", color = "#Dust Events")+
+   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.85,0.2))
+
+cor(spectrumalb$alb_unfilt, spectrumalb$model_alb, method = "pearson")^2
+NSE(spectrumalb$alb_unfilt, spectrumalb$model_alb)
+  
+
+```
+
+### PLOT Vis vs NIR/SWIR
+```{r}
+# ggplot(stats_setup%>%filter(!SY == "SY2005" & hour %in% c(11,12,13) & alb_vis < 1), aes(x=temp_tminus1))+
+#   geom_point(aes(y=alb_unfilt, shape = site), color = "gray30")+
+#   geom_point(aes(y=alb_filt, shape = site), color = "red4")+
+#   geom_point(aes(y=alb_vis, shape = site), color = "cyan")+
+#   theme_bw()+
+#   facet_wrap(~newdust)+
+#   ylim(c(0,1))
+
+# names(stats_setup)
+improved_vis <- stats_setup%>%
+  filter(alb_vis < 1)%>%
+  select(1,2,4,6,7,11,15,16,20,24,26,27,30)%>%
+  gather(., key = "Wavelength", value = "Albedo",
+         -datetime, -alb_unfilt, -date, -hour, -SY, -DOSY, -depth_m, -newdust, -site, -depth_diff, -temp_tminus1)
+
+ggplot(improved_vis, aes(x=temp_tminus1))+
+  geom_point(aes(y=Albedo, color = newdust))+
+  facet_wrap(~Wavelength)
+
+```
+
+### Variable LM
+
+#### VIS LM
+```{r}
+
+vis <- stats_setup%>%
+  filter(alb_vis < 1)%>%
+  select(date, datetime, hour, SY, DOSY, hkin_vis, hkout_vis, alb_vis, newdust, depth_diff, depth_m, temp_tminus1, Tavg_C, Uavg_MS, site, RH, vis_tminus1, ea, esat, dewpointT)
+
+# ggplot(stats_setup, aes(x=depth_m))+
+#   geom_point(aes(y=alb_vis), color = "magenta")+
+#   geom_point(aes(y=alb_unfilt), color = "black")
+
+vis_lm <- vis%>%
+  filter(SY %in% c("SY2005", "SY2006", "SY2007", "SY2008", "SY2009", "SY2010", "SY2011"))%>%
+  #filter(temp_tminus1 > -3)%>%
+  lm(data = ., alb_vis ~  depth_diff + log(depth_m) + Uavg_MS + RH + temp_tminus1 + newdust + vis_tminus1)
+summary(vis_lm)
+confint(vis_lm)
+
+cov(vis$temp_tminus1, vis$vis_tminus1)
+
+vis_model <- vis%>%
+  mutate(vis_mod = coef(vis_lm)[1]+coef(vis_lm)[2]*depth_diff+coef(vis_lm)[3]*log(depth_m) + coef(vis_lm)[4]*Uavg_MS + coef(vis_lm)[5]*RH + coef(vis_lm)[6]*temp_tminus1 + coef(vis_lm)[7]*newdust + coef(vis_lm)[8]*vis_tminus1)
+
+cor(vis_model$alb_vis, vis_model$vis_mod, method = "pearson")^2
+NSE(vis_model$alb_vis, vis_model$vis_mod)
+
+ggplot(vis_model, aes(x=alb_vis, y=vis_mod))+
+  geom_point(aes(color = newdust))+
+  ylim(c(0,max(vis_model$vis_mod)))+
+  xlim(c(0,1))+
+  theme_bw()+
+  geom_abline()+
+  scale_color_gradient(low = "snow3", high = "red4")+
+  labs(x="Observed Visible α", y="Modeled Visible α", color = "#Dust Events")+
+   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.85,0.2))
+
+
+```
+
+#### NIR/SWIR LM
+```{r}
+nir_swir <- stats_setup%>%
+  filter(!is.na(filt_tminus1))%>%
+  select(date, datetime, hour, SY, DOSY, hkin_filt, hkout_filt, alb_filt, newdust, depth_diff, depth_m, temp_tminus1, Tavg_C, Uavg_MS, site, RH, filt_tminus1, ea, esat, dewpointT)%>%
+  filter(!is.na(alb_filt))
+
+# ggplot(stats_setup, aes(x=temp_tminus1))+
+#   geom_point(aes(y=alb_filt), color = "red4")+
+#   geom_point(aes(y=alb_unfilt), color = "black")
+
+filt_lm <- nir_swir%>%
+  filter(SY %in% c("SY2005", "SY2006", "SY2007", "SY2008", "SY2009", "SY2010", "SY2011"))%>%
+  #filter(temp_tminus1 > -3)%>%
+  lm(data = ., alb_filt ~  depth_diff + depth_m + Uavg_MS + RH + temp_tminus1 + filt_tminus1)
+summary(filt_lm)
+confint(filt_lm)
+
+#alb_filt ~  depth_diff + log(depth_m) + Uavg_MS + RH + temp_tminus1 + newdust + filt_tminus1)
+
+filt_model <- nir_swir%>%
+  mutate(filt_mod = coef(filt_lm)[1]+coef(filt_lm)[2]*depth_diff+coef(filt_lm)[3]*depth_m + coef(filt_lm)[4]*Uavg_MS + coef(filt_lm)[5]*RH + coef(filt_lm)[6]*temp_tminus1 + coef(filt_lm)[7]*filt_tminus1)
+
+cor(filt_model$alb_filt, filt_model$filt_mod, method = "pearson")^2
+NSE(filt_model$alb_filt, filt_model$filt_mod)
+
+ggplot(filt_model, aes(x=alb_filt, y=filt_mod))+
+  geom_point(aes(color = newdust))+
+  ylim(c(0,max(filt_model$filt_mod)))+
+  xlim(c(0,1))+
+  theme_bw()+
+  geom_abline()+
+  scale_color_gradient(low = "snow3", high = "red4")+
+  labs(x="Observed NIR/SWIR α", y="Modeled NIR/SWIR α", color = "#Dust Events")+
+   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.85,0.2))
+
+
+```
+
+#### Combined LM
+```{r}
+vis2 <- vis_model%>%
+  select(datetime, vis_mod)
+filt2 <- filt_model%>%
+  select(datetime, filt_mod)
+unfilt2 <- stats_setup%>%
+  select(datetime, alb_unfilt, newdust)
+
+combined <- unfilt2%>%
+  merge(., vis2, by = "datetime")%>%
+  merge(., filt2, by = "datetime")%>%
+  mutate(model_unfilt = coef(lm_alb)[1] + coef(lm_alb)[2]*filt_mod + coef(lm_alb)[3]*vis_mod)
+
+cor(combined$alb_unfilt, combined$model_unfilt, method = "pearson")^2
+NSE(combined$alb_unfilt, combined$model_unfilt)
+
+ggplot(combined, aes(x=alb_unfilt, y=model_unfilt))+
+  geom_point(aes(color = newdust))+
+  geom_abline()+
+  xlim(c(0,1))+
+  ylim(c(0,1))+
+  theme_bw()+
+  scale_color_gradient(low = "snow3", high = "red4")+
+  labs(x="Observed α", y="Modeled α", color = "#Dust Events")+
+   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.85,0.2))
+
+ 
+
+```
+
+### Simplified LM
+#### VIS LM
+
+```{r}
+vis_simp  <- stats_setup%>%
+  filter(alb_vis < 1)%>%
+  #filter(alb_tminus1 > 0.3)%>%
+  select(date, datetime, hour, SY, DOSY, hkin_vis, hkout_vis, alb_vis, newdust, depth_diff, depth_m, temp_tminus1, Tavg_C, Uavg_MS, site, RH, vis_tminus1, ea, esat, dewpointT, alb_tminus1)
+
+vis_lm_simp <- vis_simp%>%
+  filter(SY %in% c("SY2005", "SY2006", "SY2007", "SY2008", "SY2009", "SY2010", "SY2011"))%>%
+  lm(data = ., alb_vis ~  depth_diff + log(depth_m) + alb_tminus1 +Tavg_C +newdust)
+summary(vis_lm_simp)
+confint(vis_lm_simp)
+
+vis_model_simp <- vis_simp%>%
+  mutate(vis_mod = coef(vis_lm_simp)[1]+coef(vis_lm_simp)[2]*depth_diff+coef(vis_lm_simp)[3]*log(depth_m) + coef(vis_lm_simp)[4]*alb_tminus1 + coef(vis_lm_simp)[5]*Tavg_C + coef(vis_lm_simp)[6]*newdust)%>%
+  mutate(model_bin = ifelse(datetime < "2011-09-01 11:00:00", "Included", "Not Included"))
+
+cor(vis_model_simp$alb_vis, vis_model_simp$vis_mod, method = "pearson")^2
+NSE(vis_model_simp$alb_vis, vis_model_simp$vis_mod)
+
+ggplot(vis_model_simp, aes(x=alb_vis, y=vis_mod))+
+  geom_point(aes(color = newdust))+
+  ylim(c(0,max(vis_model$vis_mod)))+
+  xlim(c(0,1))+
+  theme_bw()+
+  geom_abline()+
+  scale_color_gradient(low = "snow3", high = "red4")+
+  labs(x="Observed Visible α", y="Modeled Visible α", color = "#Dust Events")+
+   theme(text = element_text(size = 17.5, family = "Times New Roman"),legend.position = c(0.85,0.2))+
+  facet_wrap(~model_bin)
+
+```
+
+
+
+#### NIR/SWIR LM
+
+```{r}
+filt_simp <- stats_setup%>%
+  filter(alb_filt < 1 & !is.na(alb_filt))%>%
+  #filter(alb_tminus1 > 0.3)%>%
+  select(date, datetime, hour, SY, DOSY, hkin_filt, hkout_filt, alb_filt, newdust, depth_diff, depth_m, temp_tminus1, Tavg_C, Uavg_MS, site, RH, vis_tminus1, ea, esat, dewpointT, alb_tminus1)
+
+filt_lm_simp <- filt_simp%>%
+  filter(SY %in% c("SY2005", "SY2006", "SY2007", "SY2008", "SY2009", "SY2010", "SY2011"))%>%
+  lm(data = ., alb_filt ~  depth_diff + alb_tminus1 +Tavg_C +log(depth_m))
+summary(filt_lm_simp)
+confint(filt_lm_simp)
+
+filt_model_simp <- filt_simp%>%
+  mutate(filt_mod = coef(filt_lm_simp)[1]+coef(filt_lm_simp)[2]*depth_diff + coef(filt_lm_simp)[3]*alb_tminus1 + coef(filt_lm_simp)[4]*Tavg_C + coef(filt_lm_simp)[5]*log(depth_m))%>%
+  mutate(model_bin = ifelse(datetime < "2011-09-01 11:00:00", "Included", "Not Included"))
+
+cor(filt_model_simp$alb_filt, filt_model_simp$filt_mod, method = "pearson")^2
+NSE(filt_model_simp$alb_filt, filt_model_simp$filt_mod)
+
+ggplot(filt_model_simp, aes(x=alb_filt, y=filt_mod))+
+  geom_point(aes(color = newdust))+
+  ylim(c(0,max(filt_model$filt_mod)))+
+  xlim(c(0,1))+
+  theme_bw()+
+  geom_abline()+
+  scale_color_gradient(low = "snow3", high = "red4")+
+  labs(x="Observed Filtered α", y="Modeled Filtered α", color = "#Dust Events")+
+   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.85,0.2))+
+  facet_wrap(~model_bin)
+
+```
+
+
+#### Combined LM
+```{r}
+vis_simp <- vis_model_simp%>%
+  select(datetime, vis_mod, alb_vis)
+filt_simp <- filt_model_simp%>%
+  select(datetime, filt_mod, alb_filt)
+unfilt2 <- stats_setup%>%
+  select(datetime, alb_unfilt, newdust)
+
+combined_simp <- unfilt2%>%
+  merge(., vis_simp, by = "datetime")%>%
+  merge(., filt_simp, by = "datetime")%>%
+  mutate(model_unfilt = coef(lm_alb)[1] + coef(lm_alb)[2]*filt_mod + coef(lm_alb)[3]*vis_mod)%>%
+  mutate(model_all = coef(lm_all)[1] + coef(lm_all)[2]*vis_mod + coef(lm_all)[3]*filt_mod)
+
+#Fresh Snow LM
+cor(combined_simp$alb_unfilt, combined_simp$model_unfilt, method = "pearson")^2
+NSE(combined_simp$alb_unfilt, combined_simp$model_unfilt)
+
+#All snow LM
+cor(combined_simp$alb_unfilt, combined_simp$model_all, method = "pearson")^2
+NSE(combined_simp$alb_unfilt, combined_simp$model_all)
+
+ggplot(combined_simp, aes(x=alb_unfilt, y=model_unfilt))+
+  geom_point(aes(y=model_unfilt), color = "red4")+
+  geom_point(aes(y=model_all), color = "cyan4")+
+  geom_abline()+
+  xlim(c(0,1))+
+  ylim(c(0,1))+
+  theme_bw()+
+  labs(x="Observed α", y="Modeled α", color = "#Dust Events")+
+   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.85,0.2))
+
+names(combined_simp)
+combined_long <- combined_simp%>%
+  rename("All Values" = model_all, "Fresh Snow Values" = model_unfilt)%>%
+  gather(., key = "model", value = "albedo", -datetime, - alb_unfilt, -newdust, -vis_mod, -filt_mod, -alb_vis, -alb_filt)
+
+ggplot(combined_long, aes(x=alb_unfilt, y=albedo))+
+  geom_point(aes(color = model))+
+  geom_abline()+
+  xlim(c(0,1))+
+  ylim(c(0,1))+
+  scale_color_manual(values = c("cyan3","red4"))+
+  theme_bw()+
+  labs(x="Observed α", y="Modeled α", color = "Model Type")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.75,0.2))
+```

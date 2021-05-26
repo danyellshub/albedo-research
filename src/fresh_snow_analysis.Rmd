@@ -23,6 +23,7 @@ library(xts)
 library(dygraphs)
 library(hms)
 library(RNRCS)
+library(ggh4x)
 
 setwd("~/Desktop/Albedo Analysis/albedo-research")
 ```
@@ -366,9 +367,10 @@ Clustering Attempt
 names(fresh_snow_SASP)
 cluster_date <- fresh_snow_SASP %>%
   filter(hour %in% c(10,11,12,13,14))%>%
+  filter(depth_diff > 0.01)%>%
   select(alb_unfilt, temp_tminus1)
 head(cluster_date)
-cls <- kmeans(x=cluster_date, centers = 4)
+cls <- kmeans(x=cluster_date, centers = 3)
 cluster_date$cluster <- as.character(cls$cluster)
 head(cluster_date)
 head(cls$centers)
@@ -387,7 +389,7 @@ ggplot()+
                                   y=cls$centers[,"alb_unfilt"]),color = "snow", size=4)+
   geom_text(mapping = aes_string(x=cls$centers[,"temp_tminus1"],
                                  y=cls$centers[,"alb_unfilt"],
-                                 label = 1:4), color = "black", size = 6, family = "Times New Roman")+
+                                 label = 1:3), color = "black", size = 6, family = "Times New Roman")+
   theme_bw()+
   ylim(c(0,1))+
   labs(x="Temperature°C (t-1)", y="Albedo")+  
@@ -1111,15 +1113,13 @@ dygraph(rmp_xts)
 ####***Starting New
 
 ```{r}
-names(fresh_snow_dens)
-
 frsh_alb <- fresh_snow_dens%>%
   filter(depth_diff > 0.01 & depth_diff < 0.3)
 ggplot(frsh_alb, aes(x=depth_diff, y=alb_diff))+
   geom_point(aes(color = PreAlbedo))
 
 onestorm <- sasp_sbsp_long%>%
-  filter(SY == "SY2008" & !is.na(alb_unfilt) & alb_unfilt < 0.98)%>%
+  filter(SY == "SY2008" & alb_unfilt < 0.98)%>%
   filter(site == "SBSP")%>%
   select(datetime, depth_m, alb_unfilt)%>%
   xts(., order.by = .$datetime)
@@ -1309,7 +1309,7 @@ ggplot(sy2008May1%>%filter(depth_diff > -0.15 & alb_diff < 0.4), aes(x=datetime)
   labs(x="Datetime", color = "Site", fill = "Site",  title=  "2008-May-01", subtitle = "SASP(~2.0meters), SBSP(~1.5meters)")
 ```
 
-DepthDiff Attempt
+### DepthDiff Attempt
 ```{r}
 
 best_hours <- sasp_sbsp_long%>%
@@ -1318,6 +1318,7 @@ best_hours <- sasp_sbsp_long%>%
          depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
          alb_diff = alb_unfilt - lag(alb_unfilt), 
          alb_diff = ifelse(is.na(alb_diff), 0, alb_diff),
+         alb_tminus1 = alb_unfilt - alb_diff,
          temp_tminus1 = lag(Tavg_C),
          temp_tminus1 = ifelse(is.na(temp_tminus1), 0, temp_tminus1))%>%
   ungroup()%>%
@@ -1331,8 +1332,7 @@ best_hours <- sasp_sbsp_long%>%
                             ifelse(depth_m >= 0.2 & depth_m < 0.5, "Mid (0.2-0.5m)",
                                    "Deep (>0.5m)")))%>%
          #depth_bin = factor(depth_bin, levels = c("Shallow", "Mid", "Deep")))%>%
-  mutate(temp_bin = ifelse(temp_tminus1 < -10, "Colder (<-10°C)", 
-                           ifelse(temp_tminus1 >= -10 & temp_tminus1 < 3, "Mid (-10° to 3°C)", "Warmer (>3°C)")))%>%
+  mutate(temp_bin = ifelse(temp_tminus1 < -3, "Colder (<-3°C)", "Warmer (>-3°C)"))%>%
   mutate(next_filt = ifelse(DOSY > 30 & DOSY < 60 & depth_diff > 0.05 & alb_unfilt < 0.3 & depth_m > 0.1, NA, "OK"))%>%
   filter(!is.na(next_filt))%>%
   mutate(depth_diff_bin = ifelse(depth_diff >0.01 & depth_diff <= 0.03, "Light Accum (0.02-0.03m)", "Large Accum (>0.03m)"),
@@ -1358,13 +1358,43 @@ ggplot(best_hours%>%filter(temp_tminus1 < -3), aes(x=temp_tminus1, y= alb_unfilt
   labs(x="Temp°C (t-1)", y="Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
 
 ggplot(best_hours%>%filter(temp_tminus1 > -3), aes(x=temp_tminus1, y= alb_unfilt))+
-  geom_point(aes(shape = site, color = depth_diff))+
+  geom_point(aes(shape = site))+
   theme_bw()+
   ylim(c(0,1))+
   scale_color_gradient2(low = "blue4", mid = "snow4", high = "red4", midpoint = 0.05)+
   facet_grid(depth_bin~depth_diff_bin)+
   theme(text = element_text(size = 17.5, family = "Times New Roman"))+
   labs(x="Temp°C (t-1)", y="Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+
+ggplot(best_hours, aes(x=temp_tminus1, y= alb_unfilt))+
+  geom_point(aes(shape = site, color = depth_diff))+
+  theme_bw()+
+  ylim(c(0,1))+
+  scale_color_gradient2(low = "blue4", mid = "snow4", high = "red4", midpoint = 0.05)+
+  facet_nested(depth_bin~depth_diff_bin +temp_bin, scales = "free_x")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  labs(x="Temperature °C (t-1)", y="Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+ggplot(best_hours, aes(x=alb_tminus1, y= alb_unfilt))+
+  geom_abline(alpha = 0.4)+
+  geom_point(aes(shape = site, color = depth_diff))+
+  theme_bw()+
+  ylim(c(0,1))+
+  xlim(c(0,1))+
+  scale_color_gradient2(low = "blue4", mid = "snow4", high = "red4", midpoint = 0.05)+
+  facet_nested(depth_bin~depth_diff_bin +temp_bin)+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  labs(x="Albedo (t-1)", y="Fresh Snow Albedo", color = "∆Depth (m)", shape = "Site")
+
+ggplot(best_hours%>%filter(alb_vis < 1), aes(x=temp_tminus1, y= alb_unfilt))+
+  geom_point(aes(shape = site, color = alb_filt))+
+  theme_bw()+
+  ylim(c(0,1))+
+  scale_color_gradient2(low = "blue4", mid = "snow4", high = "red4", midpoint = 0.25)+
+  facet_nested(depth_bin~depth_diff_bin +temp_bin, scales = "free_x")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"))+
+  labs(x="Temperature °C (t-1)", y="Fresh Snow Albedo", color = "NIR/SWIR Albedo", shape = "Site")
 
 oddvalues <- best_hours%>%
   filter(temp_tminus1 > 3 & alb_unfilt < 0.5)
@@ -1431,5 +1461,37 @@ ggplot(gen_plot, aes(x=DOSY))+
         axis.title.y.right = element_text(colour="steelblue3"))+
   scale_y_continuous(name = "Broadband Albedo",
                      sec.axis = sec_axis(~.*4, name = "Depth (m)"))
+```
+
+###Night Day Depth
+```{r}
+
+nightday <- sasp_sbsp_long%>%
+  filter(!SY == "SY2005")%>%
+  group_by(site)%>%
+  mutate(depth_diff = depth_m - lag(depth_m),
+         depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
+         time_bin = ifelse(is.na(alb_unfilt), "Night", "Day"))%>%
+  mutate(depth_sign = ifelse(depth_diff < 0, "Negative", 
+                             ifelse(depth_diff == 0, "No Change", "Positive")))%>%
+  ungroup()%>%
+  filter(depth_diff < 0.1 & depth_diff > -0.1)%>%
+  filter(!depth_sign == "No Change")
+
+ggplot(nightday, aes(x=depth_diff, color = time_bin, fill = time_bin))+
+  geom_histogram(binwidth = 0.01, position = "dodge")+
+  scale_color_manual(values = c("black", "black"))+
+  scale_fill_manual(values = c("yellow", "gray30"))+
+  theme_bw()+
+  geom_vline(xintercept = 0)+
+  labs(x="∆ Depth (m)", y = "Count", color = "Time", fill = "Time")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.8, 0.75))+
+  facet_wrap(~site, nrow = 2)
+
+nightday_stats <- nightday%>%
+  group_by(site, time_bin, depth_sign)%>%
+  summarize(sum = sum(depth_diff))
+nightday_stats
+
 ```
 
