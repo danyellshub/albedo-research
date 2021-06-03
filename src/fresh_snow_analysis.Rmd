@@ -362,13 +362,13 @@ ggplot(fresh_snow_SASP%>%filter(depth_diff <0.3), aes(x=temp_tminus1, y=alb_unfi
 
 ```
 
-Clustering Attempt
+####Clustering Attempt
 ```{r}
 names(fresh_snow_SASP)
 cluster_date <- fresh_snow_SASP %>%
   filter(hour %in% c(10,11,12,13,14))%>%
-  filter(depth_diff > 0.01)%>%
-  select(alb_unfilt, temp_tminus1)
+  #filter(depth_diff > 0.01)%>%
+  select(alb_unfilt, Tavg_C)
 head(cluster_date)
 cls <- kmeans(x=cluster_date, centers = 3)
 cluster_date$cluster <- as.character(cls$cluster)
@@ -377,22 +377,22 @@ head(cls$centers)
 
 stats_temp<-cluster_date%>%
   group_by(cluster)%>%
-  summarize(min = min(temp_tminus1),
-            max = max(temp_tminus1))
-stats_temp
+  summarize(min = min(Tavg_C),
+            max = max(Tavg_C))
+#stats_temp
   
 ggplot()+
   geom_point(data = cluster_date, 
-             mapping = aes(x=temp_tminus1, 
+             mapping = aes(x=Tavg_C, 
                           y=alb_unfilt, color = cluster, shape = cluster))+
-  geom_point(mapping = aes_string(x=cls$centers[,"temp_tminus1"],
+  geom_point(mapping = aes_string(x=cls$centers[,"Tavg_C"],
                                   y=cls$centers[,"alb_unfilt"]),color = "snow", size=4)+
-  geom_text(mapping = aes_string(x=cls$centers[,"temp_tminus1"],
+  geom_text(mapping = aes_string(x=cls$centers[,"Tavg_C"],
                                  y=cls$centers[,"alb_unfilt"],
                                  label = 1:3), color = "black", size = 6, family = "Times New Roman")+
   theme_bw()+
   ylim(c(0,1))+
-  labs(x="Temperature°C (t-1)", y="Albedo")+  
+  labs(x="Temperature (°C)", y="Albedo")+  
   theme(text = element_text(size = 17.5, family = "Times New Roman"), 
         legend.title = element_blank())
 
