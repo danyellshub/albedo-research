@@ -284,6 +284,7 @@ head(fitted(multivar))
 vcov(multivar)
 
 multivar2 <- lm(alb_unfilt ~ alb_tminus1 + temp_tminus1 + log(depth_m) + depth_diff, data = mltivar_setup)
+
 summary(multivar2)
 cor(mltivar_setup$alb_tminus1, mltivar_setup$temp_tminus1, method = "kendall")
 head(fitted(multivar2))
@@ -302,7 +303,8 @@ mltivar_mod <- stats_setup%>%
   mutate(model2 = coef(multivar2)[1] + coef(multivar2)[2]*alb_tminus1 + coef(multivar2)[3]*temp_tminus1 + 
            coef(multivar2)[4]*log(depth_m)+coef(multivar2)[5]*depth_diff)%>%
   mutate(model3 = coef(multivar3)[1] + coef(multivar3)[2]*log(depth_m) + coef(multivar3)[3]*depth_diff + coef(multivar3)[4]*Tavg_C + coef(multivar3)[5]*alb_diff)%>%
-  mutate(model_bin = ifelse(datetime < "2011-09-01 11:00:00", "Included", "Not Included"))
+  mutate(model_bin = ifelse(datetime < "2011-09-01 11:00:00", "Included", "Not Included"))%>%
+  filter(!is.na(model))
 
 ggplot(mltivar_mod, aes(x=alb_unfilt, y=model))+
   geom_point(aes(color = newdust))+
@@ -331,6 +333,15 @@ ggplot(mltivar_mod, aes(x=alb_unfilt, y=model2))+
   labs(x="Observed", y="Modeled with Albedo (t-1)")+
   facet_wrap(~model_bin)
 
+
+cor(mltivar_mod$alb_unfilt, mltivar_mod$model, method = "pearson")^2
+NSE(mltivar_mod$alb_unfilt, mltivar_mod$model)
+
+cor(mltivar_mod$alb_unfilt, mltivar_mod$model2, method = "pearson")^2
+NSE(mltivar_mod$alb_unfilt, mltivar_mod$model2)
+
+cor(mltivar_mod$alb_unfilt, mltivar_mod$model3, method = "pearson")^2
+NSE(mltivar_mod$alb_unfilt, mltivar_mod$model3)
 
 ```
 
@@ -979,7 +990,7 @@ ggplot(vis_model_T, aes(x=alb_vis, y=vis_mod))+
 ```{r}
 
 lm_cool_filt <- filt_simp%>%
-  filter(Tavg_C < 3 & depth_diff > 0.01)%>%
+  filter(Tavg_C < 3)%>%
   filter(SY %in% c("SY2006", "SY2007", "SY2008", "SY2009", "SY2010", "SY2011"))%>%
   lm(data = ., alb_filt ~  depth_diff + depth_m + alb_tminus1)
 summary(lm_cool_filt)
@@ -1046,6 +1057,9 @@ NSE(combined_simp_T$alb_unfilt, combined_simp_T$model_unfilt)
 cor(combined_simp_T$alb_unfilt, combined_simp_T$model_all, method = "pearson")^2
 NSE(combined_simp_T$alb_unfilt, combined_simp_T$model_all)
 
+cor(combined_simp_T$alb_unfilt, combined_simp_T$reset, method = "pearson")^2
+NSE(combined_simp_T$alb_unfilt, combined_simp_T$reset)
+
 
 ggplot(combined_simp_T, aes(x=alb_unfilt, y=model_unfilt))+
   geom_abline(alpha = 0.8)+
@@ -1058,22 +1072,27 @@ ggplot(combined_simp_T, aes(x=alb_unfilt, y=model_unfilt))+
   labs(x="Observed α", y="Modeled α", color = "#Dust Events")+
    theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.85,0.2))
 
-names(combined_simp_T)
+names(combined_long_T)
 
 combined_long_T <- combined_simp_T%>%
-  rename("All Values" = model_all, "Fresh Snow Values" = model_unfilt, "Reset Values" = reset)%>%
+  rename("All-Snow" = model_all, "Fresh-Snow" = model_unfilt, "CLASS" = reset)%>%
   gather(., key = "model", value = "albedo", -datetime, -site,- alb_unfilt, -newdust, -vis_mod, -filt_mod)
+
+combined_long_T$model <- factor(combined_long_T$model, levels = c( "CLASS","All-Snow","Fresh-Snow"))
+
+combined_long_T <- combined_long_T%>%
+  arrange(model)
 
 ggplot(combined_long_T, aes(x=alb_unfilt, y=albedo))+
   geom_abline(alpha = 0.8, linetype = "dashed")+
   geom_point(aes(color = model, shape = model), size = 1, alpha = 0.75)+
   xlim(c(0,1))+
   ylim(c(0,1))+
-  scale_color_manual(values = c("cyan4","red4", "black"))+
-  scale_shape_manual(values = c(15,17,16))+
+  scale_color_manual(values = c("red4", "purple3", "cyan4"))+
+  scale_shape_manual(values = c(16,15,17))+
   theme_bw()+
-  labs(x="Observed α", y="Modeled α", color = "Model Type", shape = "Model Type")+
-  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.75,0.2))
+  labs(x="Observed Fresh Snow α", y="Modeled Fresh Snow α", color = "Model", shape = "Model")+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.position = c(0.75,0.15))
 
 ```
 
@@ -1424,7 +1443,7 @@ cor(sbsp_clean$alb_unfilt, sbsp_clean$reset_alb, method = "pearson")^2
 NSE(sbsp_clean$alb_unfilt, sbsp_clean$reset_alb)
 
 ggplot(sbsp_clean%>%filter(hour %in% c(12)), aes(x=DOSY))+
-  geom_point(aes(y=albedo))+
+  geom_point(aes(y=reset_alb))+
   geom_point(aes(y=alb_unfilt), color = "blue4", alpha = 0.2)+
   facet_wrap(~SY)+
   theme_bw()
@@ -1610,7 +1629,6 @@ dygraph(sasp_xts)
 ### Final Combined
 
 ```{r}
-
 final <- rbind(sasp_clean, sbsp_clean)
 str(sasp_clean)
 str(sbsp_clean)
@@ -1644,6 +1662,111 @@ ggplot(final_long, aes(x=alb_unfilt))+
   labs(x="Observed α", y = "Modeled α")+
   theme(text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank(), legend.position = c(0.85,0.1))+
   facet_wrap(~site)
+```
+
+### Absorption
+```{r}
+abs <- new_df%>%
+  select(datetime, site, hkin_unfilt)
+
+names(absorption)
+ 
+absorption <- final%>%
+  merge(., abs, by = c("datetime", "site"))%>%
+  select(datetime, SY, DOSY, site, alb_unfilt, albedo, reset_alb, hkin_unfilt)%>%
+  rename("Static Fresh α" = reset_alb, "Variable Fresh α" = albedo, "Observed α"= alb_unfilt)%>%
+  gather(., key = "Model", value = "Albedo", -datetime, -SY, -site, - hkin_unfilt, -DOSY)%>%
+  mutate(Absorbed = (1-Albedo)*hkin_unfilt)%>%
+  mutate(time = ifelse(DOSY <= 91, "First Events", 
+                       ifelse(DOSY < 227 & DOSY > 91, "Accumulation", "Melt")))%>%
+  mutate(filter = ifelse(DOSY > 227 & Albedo < 0.25, NA, 0))%>%
+  filter(!is.na(filter))%>%
+  select(!filter)
+
+absorption$time <- factor(absorption$time, levels = c("First Events", "Accumulation", "Melt"))
+str(absorption)
+
+abs_stats <- absorption%>%
+  group_by(site, SY, Model, time)%>%
+  filter(!is.na(hkin_unfilt))%>%
+  summarise(net = sum(Absorbed))%>%
+  spread(., key = "Model", value = "net")%>%
+  rename("static" = 5, "observed" = 4, "variable" = 6)%>%
+  mutate(static_diff = static -observed,
+         variable_diff = variable - observed,
+         static_diff = round(static_diff, digits = 0),
+         variable_diff = round(variable_diff, digits = 0))%>%
+  mutate_if(is.numeric, round)%>%
+  mutate(percent_static = static_diff/observed,
+         percent_variable = variable_diff/observed)
+
+abs_short <-abs_stats%>%
+  group_by(site, time)%>%
+  summarise(mean_static = mean(static),
+            mean_variable = mean(variable),
+            mean_observed = mean(observed),
+            max_static =max(static),
+            max_variable = max(variable),
+            max_observed = max(observed),
+            min_static = min(static),
+            min_variable = min(variable),
+            min_observed = min(observed),
+            mean_percent_static = mean(percent_static),
+            min_percent_static = min(percent_static),
+            max_percent_static = max(percent_static),
+            mean_percent_variable = mean(percent_variable),
+            min_percent_variable = min(percent_variable),
+            max_percent_variable = max(percent_variable))
+
+names(abs_short)
+
+abs_mean<- abs_short%>%
+  select(1,2,5,3,4)%>%
+  rename("Observed" = mean_observed, "CLASS" = mean_static, "Variable Fresh" = mean_variable)%>%
+  gather(., key = "Model", value = "Mean", -site, -time)
+
+abs_max<- abs_short%>%
+  select(1,2,8,6,7)%>%
+  rename("Observed" = max_observed, "CLASS" = max_static, "Variable Fresh" = max_variable)%>%
+  gather(., key = "Model", value = "Max", -site, -time)
+
+abs_min<- abs_short%>%
+  select(1,2,11,9,10)%>%
+  rename("Observed" = min_observed, "CLASS" = min_static, "Variable Fresh" = min_variable)%>%
+  gather(., key = "Model", value = "Min", -site, -time)
+
+abs_stats_wide <- merge(abs_mean, abs_max, by = c("site", "time", "Model"))%>%
+  merge(., abs_min, by = c("site", "time", "Model"))
+
+abs_stats_wide$Model <- factor(abs_stats_wide$Model, levels = c("Observed", "Variable Fresh", "CLASS"))
+
+abs_stats_long <- abs_stats_wide%>%
+  gather(., key = "Statistic", value = "Absorption", -site, -time, -Model)
+
+ggplot(abs_stats_wide, aes(x=site, y=Mean, fill = Model))+
+  geom_bar(stat = "identity", color = "white", position = position_dodge())+
+  geom_errorbar(aes(ymin = Min, ymax = Max), width = 0.2, position = position_dodge(0.9))+
+  facet_wrap(~time)+
+  theme_bw()+
+  scale_fill_manual(values = c("grey25", "cyan4" , "red4"))+
+  theme(legend.position = c(0.5, 0.85), text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())+
+  labs(x=element_blank(), y="Shortwave Absorption (w/m^2)")
+
+
+  
+abs_long <- abs_stats%>%
+  select(SY, site, static_diff, variable_diff)%>%
+  rename("Static Fresh α " = static_diff, "Variable Fresh α" = variable_diff)%>%
+  gather(., key = "Model", value = "Difference", -SY, -site)
+
+
+ggplot(abs_long%>%filter(!SY == "SY2011"), aes(x=SY))+
+  geom_bar(aes(y=Difference, fill = Model), stat ="identity", position = position_dodge())+
+  facet_wrap(~site)+
+  theme_bw()+
+  labs(x = element_blank(), y = "Energy Absorbed Difference (w/m2)")+
+  theme(legend.position = c(0.5, 0.15), text = element_text(size = 17.5, family = "Times New Roman"))+
+  scale_fill_manual(values = c("red4", "cyan4"))
 
 
 ```
@@ -1664,30 +1787,168 @@ df1 <- variable.names(lm_warm_vis)%>%
   as.tibble(.)%>%
   mutate(coef = coef(lm_warm_vis),
          min_2.5 = confint(lm_warm_vis)[,1],
-         max_97.5 = confint(lm_warm_vis)[,2])%>%
+         max_97.5 = confint(lm_warm_vis)[,2],
+         r2 = summary(lm_warm_vis)$adj.r.squared,
+         df = summary(lm_warm_vis)$df[2])%>%
   mutate(LM = "Warm Vis")
+
 df2 <- variable.names(lm_warm_filt)%>%
   as.tibble(.)%>%
   mutate(coef = coef(lm_warm_filt),
          min_2.5 = confint(lm_warm_filt)[,1],
-         max_97.5 = confint(lm_warm_filt)[,2])%>%
+         max_97.5 = confint(lm_warm_filt)[,2],
+         r2 = summary(lm_warm_filt)$adj.r.squared,
+         df = summary(lm_warm_filt)$df[2])%>%
   mutate(LM = "Warm IR")
+
 df3 <- variable.names(lm_cool_filt)%>%
   as.tibble(.)%>%
   mutate(coef = coef(lm_cool_filt),
          min_2.5 = confint(lm_cool_filt)[,1],
-         max_97.5 = confint(lm_cool_filt)[,2])%>%
+         max_97.5 = confint(lm_cool_filt)[,2],
+         r2 = summary(lm_cool_filt)$adj.r.squared,
+         df = summary(lm_cool_filt)$df[2])%>%
   mutate(LM = "Cool IR")
+
 df4 <- variable.names(lm_cool_vis)%>%
   as.tibble(.)%>%
   mutate(coef = coef(lm_cool_vis),
          min_2.5 = confint(lm_cool_vis)[,1],
-         max_97.5 = confint(lm_cool_vis)[,2])%>%
+         max_97.5 = confint(lm_cool_vis)[,2],
+         r2 = summary(lm_cool_vis)$adj.r.squared,
+         df = summary(lm_cool_vis)$df[2])%>%
   mutate(LM = "Cool Vis")
-  
 
-LM_all <- rbind(df1,df2,df3,df4)
+unique(LM_all$LM)
+
+LM_all <- rbind(df1,df2,df3,df4)%>%
+  select(LM, value, coef, min_2.5, max_97.5, r2, df)%>%
+  mutate(coef = round(coef, digits = 3),
+         min_2.5 = round(min_2.5, digits = 3),
+         max_97.5 = round(max_97.5, digits = 3),
+         r2 = round(r2, digits = 3))
+LM_all$LM <- factor(LM_all$LM, levels = c("Warm Vis","Cool Vis", "Warm IR", "Cool IR"))
 
          
 ```
+
+### Variable Figure
+
+```{r}
+
+names(final)
+
+plot <- final%>%
+  select(hour, DOSY, site, SY, depth_m, albedo, reset_alb, alb_unfilt)%>%
+  filter(!is.na(alb_unfilt))%>%
+  filter(hour == 12)%>%
+  select(!hour)%>%
+  mutate(filt = ifelse(depth_m == 0 & DOSY > 120 & DOSY < 220, NA, "OK"))%>%
+  filter(!is.na(filt))%>%
+  filter(!is.na(depth_m))%>%
+  group_by(DOSY, site, SY)%>%
+  summarize(mean_d = mean(depth_m),
+            mean_alb_f = mean(albedo),
+            # max_d = max(depth_m),
+            # min_d = min(depth_m),
+            # max_alb_f = max(albedo),
+            # min_alb_f = min(albedo),
+            mean_alb_s = mean(reset_alb),
+            # max_alb_s = max(reset_alb),
+            # min_alb_s = min(reset_alb),
+            mean_alb = mean(alb_unfilt))%>%
+            # max_alb = max(alb_unfilt),
+            # min_alb = min(alb_unfilt))%>%
+  mutate(time = ifelse(DOSY <= 91, "Early Events", 
+                  ifelse(DOSY > 91 & DOSY < 227, "Accumulation", "Melt")))%>%
+  mutate(time = factor(time, levels = c("Early Events", "Accumulation", "Melt")))%>%
+  rename("Observed" = mean_alb, "Variable Fresh" = mean_alb_f, "CLASS" = mean_alb_s)
+
+plot_long <- plot%>%
+  gather(., key = "Model", value = "Albedo", -DOSY, -site, -SY, -mean_d, -time)
+
+plot_function <- function(snowyear){
+  
+ p1 <-ggplot(plot_long%>%filter(SY == snowyear), aes(x=DOSY))+
+        # geom_errorbar(aes(ymin=min_alb_s, ymax =max_alb_f), color = "red4", alpha = 0.8)+
+        # geom_errorbar(aes(ymin=min_alb_f, ymax =max_alb_f), color = "cyan4", alpha = 0.8)+
+        # geom_errorbar(aes(ymin=min_d/4, ymax =max_d/4), color = "steelblue3", alpha = 0.8)+
+        geom_line(aes(y=Albedo, color = Model, linetype = Model))+
+        geom_line(aes(y=mean_d/4), color = "steelblue4")+
+        scale_color_manual(values = c("red4","black", "cyan4"))+
+        scale_linetype_manual(values = c("dotted", "solid", "dashed"))+
+        facet_grid(site~time, scales = "free")+
+        theme_bw()+
+        theme(text = element_text(size = 17.5, family = "Times New Roman"),
+              axis.text.y.right = element_text(colour="steelblue3"),
+              axis.title.y.right = element_text(colour="steelblue3"),
+              legend.text = element_text(size = 10),
+              legend.position = c(0.56, 0.55), legend.title = element_blank())+
+        scale_y_continuous(name = "Broadband Albedo",
+                           sec.axis = sec_axis(~.*4, name = "Depth (m)"))+
+        labs(subtitle = {snowyear})
+
+return(p1)
+}
+
+plot_function(snowyear = "SY2006")
+plot_function(snowyear = "SY2007")
+plot_function(snowyear = "SY2008")
+plot_function(snowyear = "SY2009")
+plot_function(snowyear = "SY2010")
+plot_function(snowyear = "SY2011")
+plot_function(snowyear = "SY2012")
+plot_function(snowyear = "SY2013")
+plot_function(snowyear = "SY2014")
+
+```
+
+
+
+### Cross Covariance
+
+```{r}
+
+names(vis_simp)
+names(filt_simp)
+names(stats_setup)
+str(stats_setup)
+
+
+cov(stats_setup$alb_tminus1, stats_setup$alb_tminus1)
+
+cor(stats_setup$depth_m, stats_setup$depth_diff, method = "pearson")^2
+cov(stats_setup$depth_m, stats_setup$depth_diff)
+
+cor(stats_setup$depth_m, stats_setup$Tavg_C, method = "pearson")^2
+cov(stats_setup$depth_m, stats_setup$Tavg_C)
+
+cor(stats_setup$depth_m, stats_setup$alb_tminus1, method = "pearson")^2
+cov(stats_setup$depth_m, stats_setup$alb_tminus1)
+
+cor(stats_setup$depth_m, stats_setup$newdust, method = "pearson")^2
+cov(stats_setup$depth_m, stats_setup$newdust)
+
+cor(stats_setup$Tavg_C, stats_setup$depth_diff, method = "pearson")^2
+cov(stats_setup$Tavg_C, stats_setup$depth_diff)
+
+cor(stats_setup$Tavg_C, stats_setup$alb_tminus1, method = "pearson")^2
+cov(stats_setup$Tavg_C, stats_setup$alb_tminus1)
+
+cor(stats_setup$Tavg_C, stats_setup$newdust, method = "pearson")^2
+cov(stats_setup$Tavg_C, stats_setup$newdust)
+
+cor(stats_setup$depth_diff, stats_setup$alb_tminus1, method = "pearson")^2
+cov(stats_setup$depth_diff, stats_setup$alb_tminus1)
+
+cor(stats_setup$depth_diff, stats_setup$newdust, method = "pearson")^2
+cov(stats_setup$depth_diff, stats_setup$newdust)
+
+cor(stats_setup$alb_tminus1, stats_setup$newdust, method = "pearson")^2
+cov(stats_setup$alb_tminus1, stats_setup$newdust)
+
+```
+
+
+
 
