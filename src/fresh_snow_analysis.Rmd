@@ -49,7 +49,7 @@ load("data/red_mtn_pass.Rdata")
 # save(red_mtn_pass, file = "data/red_mtn_pass.Rdata")
 
 RMP_clean <- red_mtn_pass%>%
-  select(1:4,6:8)%>%
+  dplyr::select(1:4,6:8)%>%
   rename(date =1, Tavg_F = 2, Tmax_F = 3, Tmin_F = 4, Precip_in = 5, Ds_in = 6, SWE_in = 7)%>%
   mutate(date = ymd(date),
          ds_m = Ds_in/39.3)%>%
@@ -79,19 +79,24 @@ ggplot(RMP_clean%>%filter(month(date) < 8), aes(x=date))+
 ```{r}
 
 RMP_clean_xts <- RMP_clean%>%
-  select(1,8:10)%>%
+  dplyr::select(1,8:10)%>%
   xts(., order.by = .$date)
   
 dygraph(RMP_clean_xts)
 
 RMP_density <- RMP_clean%>%
-  select(1, 8:10)%>%
+  dplyr::select(1, 8:10)%>%
   mutate(dens_diff = density - lag(density),
          dens_diff = ifelse(is.na(dens_diff), 0, dens_diff))%>%
   mutate(density = ifelse(month(date) > 8 & density > 298, 219, density))
 
+
+dens_stats <- RMP_density%>%
+  filter(year(date) == 2014)
+  summarise(max = max(density))
+
 RMP_clean_xts2 <- RMP_density%>%
-  select(1:4)%>%
+  dplyr::select(1:4)%>%
   xts(., order.by = .$date)
 
 dygraph(RMP_clean_xts2)
@@ -1471,7 +1476,7 @@ nightday <- sasp_sbsp_long%>%
   group_by(site)%>%
   mutate(depth_diff = depth_m - lag(depth_m),
          depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
-         time_bin = ifelse(is.na(alb_unfilt), "Night", "Day"))%>%
+         time_bin = ifelse(hour %in% c(10,11,12,13,14), "Midday", "High Zenith"))%>%
   mutate(depth_sign = ifelse(depth_diff < 0, "Negative", 
                              ifelse(depth_diff == 0, "No Change", "Positive")))%>%
   ungroup()%>%
@@ -1481,7 +1486,7 @@ nightday <- sasp_sbsp_long%>%
 ggplot(nightday, aes(x=depth_diff, color = time_bin, fill = time_bin))+
   geom_histogram(binwidth = 0.01, position = "dodge")+
   scale_color_manual(values = c("black", "black"))+
-  scale_fill_manual(values = c("yellow", "gray30"))+
+  scale_fill_manual(values = c("gray30","yellow"))+
   theme_bw()+
   geom_vline(xintercept = 0)+
   labs(x="∆ Depth (m)", y = "Count", color = "Time", fill = "Time")+
