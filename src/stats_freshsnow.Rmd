@@ -26,6 +26,7 @@ library(RNRCS)
 library(hydroGOF)
 library(wesanderson)
 
+
 setwd("~/Desktop/Albedo Analysis/albedo-research")
 
 ```
@@ -412,7 +413,7 @@ NSE(all$alb_unfilt, all$fresh)
 
 a <- all_combined%>%
   dplyr::select(alb_unfilt, mod_alb, model_bin)%>%
-  mutate(Model = "All-Values")%>%
+  mutate(Model = "All-Snow")%>%
   rename("Albedo" = mod_alb)
 
 b <- spectrumalb%>%
@@ -1099,7 +1100,7 @@ combined_long_T <- combined_long_T%>%
 
 ggplot(combined_long_T, aes(x=alb_unfilt, y=albedo))+
   geom_abline(alpha = 0.8, linetype = "dashed")+
-  geom_point(aes(color = model, shape = model), size = 1, alpha = 0.75)+
+  geom_point(aes(color = model, shape = model), size = 2, alpha = 0.75)+
   xlim(c(0,1))+
   ylim(c(0,1))+
   scale_color_manual(values = c("red4", "purple3", "cyan4"))+
@@ -1346,6 +1347,7 @@ fresh_temp <- new_df%>%
   group_by(site)%>%
   mutate(depth_diff = depth_m - lag(depth_m),
          depth_diff = ifelse(is.na(depth_diff), 0, depth_diff),
+         depth_diff = round(depth_diff, digits = 2),
          alb_diff = alb_unfilt - lag(alb_unfilt),
          alb_diff = ifelse(is.na(alb_unfilt), 0, alb_diff))%>%
   ungroup()%>%
@@ -1353,11 +1355,21 @@ fresh_temp <- new_df%>%
   filter(depth_diff > 0)%>%
   filter(alb_diff > 0)%>%
   filter(hour %in% c(10,11,12,13,14))%>%
-  dplyr::select(SY, DOSY, site, datetime, depth_m, Tavg_C, alb_unfilt)
-  
+  dplyr::select(SY, DOSY, site, datetime, depth_diff, depth_m, Tavg_C, alb_unfilt)
+
+cor(fresh_temp$alb_unfilt, fresh_temp$Tavg_C, method = "pearson")^2
+cor(fresh_temp$alb_unfilt, fresh_temp$depth_diff, method = "pearson")^2
+cor(fresh_temp$alb_unfilt, fresh_temp$depth_m, method = "pearson")^2
+
+test <- fresh_temp$depth_diff
+table(test)
+
+
+
+
 ggplot(fresh_temp, aes(x=Tavg_C, y=alb_unfilt))+
   #geom_vline(xintercept = 2, color = "black", linetype = "dashed", alpha = 0.7)+
-  geom_point(aes(color = DOSY, shape = site), alpha = 0.9)+
+  geom_point(aes(color = DOSY, shape = site), size = 2, alpha = 0.9)+
   scale_shape_manual(values = c(1,4))+
   theme_bw()+
   ylim(c(0,1))+
@@ -1697,7 +1709,7 @@ final_long <- final %>%
   arrange(Model)
 
 ggplot(final_long, aes(x=alb_unfilt))+
-  geom_point(aes(y=Albedo, color = Model), size = 0.7, alpha = 0.3)+
+  geom_point(aes(y=Albedo, color = Model), size = 1.2, alpha = 0.37)+
   scale_color_manual(values = c("red4", "cyan4"))+
   theme_bw()+
   xlim(c(0,1))+
@@ -1748,6 +1760,9 @@ abs_stats <- absorption%>%
   summarise(net = sum(Absorbed))%>%
   spread(., key = "Model", value = "net")%>%
   rename("static" = 5, "observed" = 4, "variable" = 6)%>%
+  mutate(static = static/1000,
+         observed = observed/1000,
+         variable = variable/1000)%>%
   mutate(static_diff = static -observed,
          variable_diff = variable - observed,
          static_diff = round(static_diff, digits = 0),
@@ -1796,6 +1811,8 @@ abs_stats_wide <- merge(abs_mean, abs_max, by = c("site", "time", "Model"))%>%
 
 abs_stats_wide$Model <- factor(abs_stats_wide$Model, levels = c("Observed", "Variable Fresh", "CLASS"))
 
+view(abs_stats_wide) 
+
 abs_stats_long <- abs_stats_wide%>%
   gather(., key = "Statistic", value = "Absorption", -site, -time, -Model)
 
@@ -1806,8 +1823,10 @@ ggplot(abs_stats_wide, aes(x=site, y=Mean, fill = Model))+
   theme_bw()+
   scale_fill_manual(values = c("grey25", "cyan4" , "red4"))+
   theme(legend.position = c(0.5, 0.85), text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())+
-  labs(x=element_blank(), y="Net Shortwave Radiation (w/m^2)")
+  labs(x=element_blank(), y=expression(paste("Net Shortwave Radiation ","(", 10^3," W/m"^2,")")))
 
+bquote('x axis'~(Å^2))
+expression(paste("x axis ", ring(A)^2))
 
   
 abs_long <- abs_stats%>%
@@ -1914,6 +1933,17 @@ ggplot(LM_all, aes(x=value, y=Coefficient, fill = value))+
   scale_fill_manual(values = wes_palette(n=5, name = "IsleofDogs1"))+
   scale_color_manual(values = wes_palette(n=5, name = "IsleofDogs2"))+
   theme(legend.position = c(0.62, 0.85), text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank())+
+  labs(x=element_blank())
+
+ggplot(LM_all, aes(x=value, y=Coefficient, color = value))+
+  geom_hline(yintercept = 0, alpha = 0.5)+
+  geom_point(aes(color = value), size = 3)+
+  scale_color_manual(values = wes_palette(n=5, name = "IsleofDogs1"))+
+  geom_errorbar(aes(ymin = min_2.5, ymax = max_97.5, color = value), width=0.2, position = position_dodge())+
+  #scale_color_manual(values = wes_palette(n=5, name = "IsleofDogs1"))+
+  facet_wrap(~LM, scales = "free_y")+
+  theme_bw()+ 
+  theme(legend.position = c(0.38, 0.69), text = element_text(size = 17.5, family = "Times New Roman"), legend.title = element_blank(), axis.text.x=element_text(angle=45, hjust=1))+
   labs(x=element_blank())
 
 
@@ -2058,15 +2088,13 @@ model_stats <-final%>%
 
 model_stats$Model <- factor(model_stats$Model, levels = c("Observed", "Variable Fresh", "CLASS"))
 
-summary(model_stats)
-
 ggplot(model_stats%>%rename("Site" = site), aes(x=mean_d, y=Albedo, color = DOSY))+
-  geom_point(aes(shape = Site))+
+  geom_point()+
   scale_color_gradient2(low = "tan4", mid = "snow3", high = "gray25", midpoint = 182)+
-  scale_shape_manual(values = c(1,4))+
-  facet_wrap(~Model)+
+  #scale_shape_manual(values = c(1,4))+
+  facet_grid(Site~Model)+
   theme_bw()+
-  theme(legend.position = c(0.87, 0.4), text = element_text(size = 17.5, family = "Times New Roman"))+
+  theme(legend.position = c(0.87, 0.2), text = element_text(size = 17.5, family = "Times New Roman"))+
   labs(x="Mean Depth (m)", y= "Mean Broadband Albedo")+
   ylim(c(0,1))
   
@@ -2095,6 +2123,8 @@ ggplot(model_stats_SY%>%rename("Site" = site), aes(x=mean_d, y=Albedo, color = D
   ylim(c(0,1))
             
 
+
+
 ```
 
 ### Density Again
@@ -2119,12 +2149,23 @@ fresh_dens <- new_df%>%
          PS_dens = 85*((-0.030*cos(0.331*Tavg_C+0.418)+0.015*cos(2*0.331*Tavg_C+0.418)-
                                     0.029*cos(3*0.331*Tavg_C+0.418)+0.123*sin(0.331*Tavg_C+0.418)+
                                       0.009*sin(2*0.331*Tavg_C+0.418)-0.026*sin(3*0.331*Tavg_C+0.418))*
-                                     -1.75+1))
+                                     -1.75+1))%>%
+  filter(!is.na(HP_dens))%>%
+  filter(!is.na(LaCh_dens))
+
+
+cor(fresh_dens$HP_dens, fresh_dens$alb_unfilt, method = "pearson")^2
+cor(fresh_dens$DL_dens, fresh_dens$alb_unfilt, method = "pearson")^2
+cor(fresh_dens$LaCh_dens, fresh_dens$alb_unfilt, method = "pearson")^2
+cor(fresh_dens$PS_dens, fresh_dens$alb_unfilt, method = "pearson")^2
+
+
 
 fresh_dens_long <-fresh_dens %>%
   dplyr::select(DOSY,Tavg_C, site, alb_unfilt, HP_dens, DL_dens, LaCh_dens, PS_dens)%>%
   rename("Hedstrom-Pomeroy" = HP_dens, "LaChapelle" = LaCh_dens, "Diamond-Lowry" = DL_dens, "Particle Shape" = PS_dens)%>%
   gather(., key = "Model", value = "Density", -DOSY, -site, -alb_unfilt, -Tavg_C)
+
 
 
 ggplot(fresh_dens_long%>%filter(!is.na(Density) & Density > 0), aes(x=Density, y=alb_unfilt))+
@@ -2171,6 +2212,88 @@ ggplot(sy08_long, aes(x=date))+
         legend.title = element_blank(), legend.position = c(0.45,0.88))+
   scale_x_date(date_breaks = "1 week", date_labels =  "%m/%d/%Y") 
 
+
+
+```
+
+### Final Figures
+
+```{r}
+gen_plot <- sasp_sbsp_long%>%
+  filter(hour == 12 & alb_unfilt < 0.98 & alb_unfilt > 0.15)%>%
+  mutate(filt = ifelse(depth_m == 0 & DOSY > 120 & DOSY < 220, NA, "OK"))%>%
+  filter(!is.na(filt))
+
+gen_med <- gen_plot%>%
+  group_by(site, DOSY)%>%
+  summarise(med_d = median(depth_m),
+            med_alb = median(alb_unfilt))%>%
+  mutate(SY = "Median")%>%
+  rename("alb_unfilt" = med_alb, "depth_m" = med_d)%>%
+  select(site, SY, DOSY, alb_unfilt, depth_m)%>%
+  mutate(depth_m = as.numeric(depth_m))%>%
+  as_tibble()
+
+gen_comb <- gen_plot%>%
+  select(site, SY, DOSY, alb_unfilt, depth_m)%>%
+  rbind(., gen_med)%>%
+  as_tibble()%>%
+  mutate(time = ifelse(DOSY < 90, "Early Events", 
+                  ifelse(DOSY >= 90 & DOSY < 220, "Accumulation", "Melt")))%>%
+  mutate(time = factor(time, levels = c("Early Events", "Accumulation", "Melt")))%>%
+  filter(!DOSY == 344)%>%
+  mutate(Legend = ifelse(SY == "Median", "Median", 
+                         ifelse(SY == "SY2012", "SY2012", 
+                                ifelse(SY == "SY2008", "SY2008", "Other Years"))))%>%
+  filter(!SY == "SY2005")%>%
+  mutate(Legend = factor(Legend, levels = c("Other Years", "SY2008", "SY2012",  "Median")))%>%
+  mutate(SY = factor(SY, levels = c("SY2006", "SY2007", "SY2009", "SY2010", "SY2011", "SY2013", "SY2008", "SY2012", "Median")))
+
+names(gen_comb)
+
+# gen_long <- gen_comb%>%
+#   gather(., key = "Variable", value = "Value", -site, -SY, - DOSY, -time, -Legend)
+
+ggplot(gen_comb%>%filter((site == "SBSP")), aes(x=DOSY, group = SY))+
+ # geom_errorbar(aes(ymin=min_d/4, ymax =max_d/4), color = "steelblue3", alpha = 0.5)+
+  geom_line(aes(y=depth_m/3,color = Legend, size = Legend))+
+  #scale_linetype_manual(values = c("dashed", "solid", "solid", "solid"))+
+  scale_size_manual(values = c(0.35,1,1,1))+
+  scale_color_manual(values = c("Gray50", "Steelblue2", "Red3", "Black"))+
+  #geom_errorbar(aes(ymin=min_alb, ymax =max_alb), color = "black", alpha = 0.5)+
+  #geom_line(aes(y=alb_unfilt, color = Legend), size = 1.5)+
+  facet_wrap(~time, scales = "free_x")+
+  theme_bw()+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"),
+        axis.text.y.right = element_text(colour="steelblue3"),
+        axis.text.y.left = element_text(colour = "white"),
+        axis.ticks.y.left = element_blank(),
+        axis.title.y.right = element_text(colour="steelblue4"),
+        legend.position = "none")+
+  scale_y_continuous(name = element_blank(), limits = c(0,1),
+                     sec.axis = sec_axis(~.*3, name = "Depth (m)"))
+  #annotate("text", x=25, y=0.8, label = "a)")
+
+
+ggplot(gen_comb%>%filter((site == "SBSP")), aes(x=DOSY, group = SY))+
+ # geom_errorbar(aes(ymin=min_d/4, ymax =max_d/4), color = "steelblue3", alpha = 0.5)+
+  #geom_line(aes(y=depth_m/3,color = Legend, size = Legend))+
+  #scale_linetype_manual(values = c("dashed", "solid", "solid", "solid"))+
+  #geom_errorbar(aes(ymin=min_alb, ymax =max_alb), color = "black", alpha = 0.5)+
+  geom_line(aes(y=alb_unfilt, color = Legend, size = Legend))+
+  scale_color_manual(values = c("Gray50", "Steelblue2", "Red3", "Black"))+
+  scale_size_manual(values = c(0.35,1,1,1))+
+  facet_wrap(~time, scales = "free_x")+
+  theme_bw()+
+  theme(text = element_text(size = 17.5, family = "Times New Roman"),
+        axis.text.y.right = element_text(colour="white"),
+        axis.text.y.left = element_text(colour = "black"),
+        #legend.title = element_blank())+
+        #axis.ticks.y = element_blank(),
+        #axis.title.y.right = element_text(colour="steelblue4"),
+        legend.position = "none")+
+  scale_y_continuous(name = "Broadband Albedo")
+  #annotate("text", x=25, y=0.8, label = "a)")
 
 
 ```
