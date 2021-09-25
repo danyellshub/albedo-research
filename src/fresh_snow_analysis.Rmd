@@ -1474,6 +1474,7 @@ ggplot(gen_plot, aes(x=DOSY))+
 nightday <- sasp_sbsp_long%>%
   filter(!SY == "SY2005")%>%
   group_by(site)%>%
+  filter(!is.na(alb_unfilt))%>%
   mutate(depth_diff = depth_m - lag(depth_m),
          depth_diff = ifelse(is.na(depth_diff), 0 , depth_diff),
          time_bin = ifelse(hour %in% c(10,11,12,13,14), "Midday", "High Zenith"))%>%
